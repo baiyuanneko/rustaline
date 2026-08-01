@@ -1,0 +1,57 @@
+# bynrust26 编排：app + redis，SQLite 数据落卷
+#
+# 换用 PostgreSQL 的步骤：
+#   1. 取消下方 postgres 服务的注释，app 的 depends_on 加上 postgres（带健康检查）
+#   2. 修改 app.environment：
+#        APP_DATABASE_URL: postgres://byn:byn@postgres:5432/bynrust26
+#   3. 重新构建镜像并启用 postgres feature：
+#        docker compose build --build-arg CARGO_FEATURES="--no-default-features --features postgres" app
+#      （或把 build.args.CARGO_FEATURES 写进下方 app.build.args）
+#   MySQL 同理（mysql://... + mysql feature）
+
+services:
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # postgres:
+  #   image: postgres:17
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: byn
+  #     POSTGRES_PASSWORD: byn
+  #     POSTGRES_DB: bynrust26
+  #   volumes:
+  #     - pg-data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U byn -d bynrust26"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # 容器内用绝对路径，数据落在挂载卷里
+      APP_DATABASE_URL: sqlite:///app/data/bynrust26.db?mode=rwc
+      APP_REDIS_URL: redis://redis:6379
+      # 生产环境务必通过 .env / secret 注入，不要提交真实密钥
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-change-me-in-production}
+      APP_LOG_LEVEL: info
+    volumes:
+      - sqlite-data:/app/data
+    ports:
+      - "8080:8080"
+
+volumes:
+  sqlite-data:
+  # pg-data:

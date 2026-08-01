@@ -1,0 +1,111 @@
+# bynrust26
+
+Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 PostgreSQL / MySQL）+ JWT 认证（Redis 黑名单）+ utoipa OpenAPI。
+
+## 技术栈
+
+- Web：axum 0.8、tower-http（trace / cors）
+- ORM：sea-orm 2 + sea-orm-migration（独立 `migration` crate）
+- 认证：jsonwebtoken 签发 access token（jti = uuid），logout 后 jti 写入 Redis 黑名单
+- 配置：`config` crate 分层加载（`config/default.toml` < `config/local.toml` < `APP_*` 环境变量），dotenvy 加载 `.env`
+- 文档：utoipa 5 + utoipa-swagger-ui，Swagger UI 在 `/swagger-ui/`
+
+## 快速开始
+
+```bash
+cp .env.example .env          # 按需修改密钥等
+docker compose up -d redis    # 或自行启动 redis（blacklist_enabled=true 时必需）
+cargo run -p app              # 启动，监听 0.0.0.0:8080
+```
+
+启动流程：加载配置 → 初始化 tracing → 连数据库 → 自动跑迁移（`Migrator::up`）→ 连 Redis → serve（支持 Ctrl+C / SIGTERM 优雅退出）。
+
+- Swagger UI: http://localhost:8080/swagger-ui/
+- OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
+- 健康检查: `curl http://localhost:8080/health`
+
+示例调用：
+
+```bash
+# 注册 -> 登录 -> 带 token 访问
+curl -X POST localhost:8080/api/v1/auth/register -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"secret123"}'
+TOKEN=$(curl -s -X POST localhost:8080/api/v1/auth/login -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"secret123"}' | jq -r .access_token)
+curl localhost:8080/api/v1/users -H "Authorization: Bearer $TOKEN"
+curl -X POST localhost:8080/api/v1/auth/logout -H "Authorization: Bearer $TOKEN"  # 登出后该 token 立即失效
+```
+
+## 切换数据库
+
+默认 SQLite（feature `sqlite`）。切换为 PostgreSQL / MySQL：
+
+```bash
+cargo build -p app --no-default-features --features postgres   # 或 mysql
+```
+
+同时把连接串指过去（任选其一）：
+
+```bash
+# .env 或环境变量
+APP_DATABASE_URL=postgres://user:pass@localhost:5432/bynrust26
+# 或嵌套写法
+APP_DATABASE__URL=mysql://user:pass@localhost:3306/bynrust26
+```
+
+migration 代码用的是 sea-query 跨库写法，无需改动；实体/migration 在三种数据库下通用。
+
+## sea-orm-cli 用法
+
+```bash
+cargo install sea-orm-cli
+
+# 手动执行迁移（应用启动时已自动 up，这里用于 down/fresh/status 等）
+DATABASE_URL="sqlite://./data/bynrust26.db?mode=rwc" sea-orm-cli migrate status
+DATABASE_URL="sqlite://./data/bynrust26.db?mode=rwc" sea-orm-cli migrate down
+# 或者走 workspace 内的 migration 二进制（读取 .env 的 DATABASE_URL）
+cargo run -p migration -- status
+
+# 数据库结构变化后重新生成实体（会覆盖 app/src/entities，注意备份手写改动）
+sea-orm-cli generate entity -o app/src/entities --with-serde none
+```
+
+## 环境变量
+
+优先级：`config/default.toml` < `config/local.toml`（gitignore）< 环境变量。环境变量支持嵌套写法（`__` 分隔层级）和下表的单层简写：
+
+| 环境变量（简写） | 嵌套写法 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `APP_SERVER_HOST` | `APP_SERVER__HOST` | 监听地址 | `0.0.0.0` |
+| `APP_SERVER_PORT` | `APP_SERVER__PORT` | 监听端口 | `8080` |
+| `APP_DATABASE_URL` | `APP_DATABASE__URL` | 数据库连接串 | `sqlite://./data/bynrust26.db?mode=rwc` |
+| `APP_REDIS_URL` | `APP_REDIS__URL` | Redis 连接串 | `redis://127.0.0.1:6379` |
+| `APP_JWT_SECRET` | `APP_JWT__SECRET` | JWT 签名密钥（生产必改） | `change-me-in-production` |
+| `APP_JWT_TTL_SECS` | `APP_JWT__TTL_SECS` | token 有效期（秒） | `86400`（24h） |
+| `APP_JWT_BLACKLIST_ENABLED` | `APP_JWT__BLACKLIST_ENABLED` | 是否启用 logout 黑名单；启用时 Redis 不可达则启动失败 | `true` |
+| `APP_LOG_LEVEL` | `APP_LOG__LEVEL` | 日志级别（env-filter 语法） | `info` |
+
+## 测试
+
+```bash
+cargo test
+```
+
+集成测试（`app/tests/api.rs`）使用内存 SQLite + 完整 router（tower `oneshot`，不起端口）。黑名单用例会拉起本机 `redis-server` 临时实例，二进制不存在时自动跳过该用例。
+
+## Docker
+
+```bash
+docker compose up --build     # app + redis，SQLite 数据在 sqlite-data 卷
+```
+
+换 PostgreSQL / MySQL：见 `docker-compose.yml` 顶部注释（`--build-arg CARGO_FEATURES="--no-default-features --features postgres"`）。
+
+## 常用命令
+
+```bash
+cargo build                      # 构建
+cargo test                       # 全部测试
+cargo clippy --all-targets -- -D warnings   # lint
+cargo fmt --check                # 格式检查
+```

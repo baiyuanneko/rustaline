@@ -1,0 +1,25 @@
+# 默认配置。优先级（低 -> 高）：
+#   config/default.toml < config/local.toml（gitignore，本机覆盖）< APP_* 环境变量
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+# SQLite 文件路径，启动时会自动创建父目录；?mode=rwc 表示不存在则创建
+url = "sqlite://./data/bynrust26.db?mode=rwc"
+
+[redis]
+url = "redis://127.0.0.1:6379"
+
+[jwt]
+secret = "change-me-in-production"
+# access token 有效期（秒），默认 24h
+ttl_secs = 86400
+# 是否启用基于 Redis 的 JWT 黑名单（logout 吊销 token）。
+# 启用时若连不上 Redis，应用启动直接报错退出
+blacklist_enabled = true
+
+[log]
+# tracing env-filter 语法
+level = "info"

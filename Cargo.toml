@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = ["app", "migration"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# 内部 crate
+app = { path = "app" }
+migration = { path = "migration" }
+
+# Web 框架与运行时
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# ORM（DB 驱动 feature 在各 crate 的 features 里开启：sqlx-sqlite / sqlx-postgres / sqlx-mysql）
+sea-orm = { version = "2", features = ["runtime-tokio-rustls", "macros"] }
+sea-orm-migration = { version = "2", features = ["runtime-tokio-rustls"] }
+
+# 配置与序列化
+config = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenvy = "0.15"
+
+# 日志与错误
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
+# 认证 / 缓存
+# jsonwebtoken 11 需显式选择 crypto provider（纯 Rust 实现，避免 aws-lc-rs 的 C 编译）
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+redis = { version = "1", default-features = false, features = [
+    "tokio-comp",
+    "connection-manager",
+] }
+argon2 = "0.5"
+# argon2 的 SaltString::generate 需要 rand_core 的 getrandom（OsRng）
+rand_core = { version = "0.6", features = ["getrandom"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }

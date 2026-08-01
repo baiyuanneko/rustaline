@@ -1,0 +1,16 @@
+[package]
+name = "migration"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["sqlite"]
+sqlite = ["sea-orm-migration/sqlx-sqlite"]
+postgres = ["sea-orm-migration/sqlx-postgres"]
+mysql = ["sea-orm-migration/sqlx-mysql"]
+
+[dependencies]
+sea-orm-migration.workspace = true
+tokio.workspace = true
