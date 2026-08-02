@@ -49,8 +49,10 @@ services:
       APP_LOG_LEVEL: info
     volumes:
       - sqlite-data:/app/data
-    ports:
-      - "8080:8080"
+    # 默认不绑定宿主机端口，app 仅在 compose 内网可达（redis 走内部服务名通信，本来就不绑定）。
+    # 需要从宿主机/外部直接访问时取消注释；或让反向代理加入本 compose 网络。
+    # ports:
+    #   - "8080:8080"
 
 volumes:
   sqlite-data:

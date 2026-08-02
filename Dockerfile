@@ -3,6 +3,16 @@
 # ---------- builder ----------
 # 注意：这是 Cargo workspace，必须 COPY 整个 workspace 再构建，不能只 COPY app/
 FROM rust:1-slim AS builder
+
+# apt 换阿里云镜像加速；gcc 是必需的（sqlx-sqlite 会编译内嵌的 libsqlite3，需要 C 链接器）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gcc curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# crates.io 换阿里云镜像
+COPY .cargo/config.toml /usr/local/cargo/config.toml
+
 WORKDIR /build
 
 COPY Cargo.toml Cargo.lock ./
@@ -17,7 +27,9 @@ RUN cargo build --release -p app ${CARGO_FEATURES}
 # ---------- runtime ----------
 FROM debian:bookworm-slim
 
-RUN apt-get update \
+# apt 换阿里云镜像加速
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 app

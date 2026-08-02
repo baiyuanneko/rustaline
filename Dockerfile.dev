@@ -1,0 +1,21 @@
+# 开发专用镜像：与 Dockerfile（生产多阶段构建）不同，这里保留完整工具链，
+# 源码在运行时通过 volume 挂载，由容器内 cargo-watch 监视改动并增量重编译重启。
+# gcc 是必需的：sqlx-sqlite 会编译内嵌的 libsqlite3（C 代码），rust slim 镜像默认没有 C 链接器。
+FROM rust:1-slim
+
+# apt 换阿里云镜像加速（trixie 使用 deb822 格式源文件）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gcc curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# crates.io 换阿里云镜像（项目 .cargo/config.toml 在运行时也会经挂载生效，
+# 这里 COPY 到 CARGO_HOME 是为了让构建期的 cargo install 同样走镜像）
+COPY .cargo/config.toml /usr/local/cargo/config.toml
+
+RUN cargo install cargo-watch --locked
+
+WORKDIR /workspace
+
+# 实际命令在 docker-compose.dev.yml 里定义（cargo watch -x 'run -p app'）
+CMD ["cargo", "watch", "-x", "run -p app"]

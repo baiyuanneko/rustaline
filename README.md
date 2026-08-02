@@ -12,10 +12,20 @@ Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 Po
 
 ## 快速开始
 
+方式一：全 Docker（推荐，无需手动 cargo run，内置热重载）
+
+```bash
+docker compose -f docker-compose.dev.yml up -d          # 起 app + redis（首次需构建镜像+编译，较慢）
+docker compose -f docker-compose.dev.yml logs -f app    # 看应用日志
+# app 容器内运行 cargo-watch：保存代码即自动增量重编译并重启应用，无需任何手动操作
+```
+
+方式二：本地运行
+
 ```bash
 cp .env.example .env          # 按需修改密钥等
-docker compose up -d redis    # 或自行启动 redis（blacklist_enabled=true 时必需）
-cargo run -p app              # 启动，监听 0.0.0.0:8080
+docker compose -f docker-compose.dev.yml up -d redis    # 只起 redis（blacklist_enabled=true 时必需）
+cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式一端口二选一）
 ```
 
 启动流程：加载配置 → 初始化 tracing → 连数据库 → 自动跑迁移（`Migrator::up`）→ 连 Redis → serve（支持 Ctrl+C / SIGTERM 优雅退出）。
@@ -100,6 +110,8 @@ docker compose up --build     # app + redis，SQLite 数据在 sqlite-data 卷
 ```
 
 换 PostgreSQL / MySQL：见 `docker-compose.yml` 顶部注释（`--build-arg CARGO_FEATURES="--no-default-features --features postgres"`）。
+
+国内网络加速：crates.io 走项目 `.cargo/config.toml`（阿里云镜像，容器内外都生效）；Dockerfile 内 apt 已换阿里云源。注意 `utoipa-swagger-ui` 的 build script 会从 github.com 直连下载 Swagger UI zip（约 4MB），全新构建（无 target 缓存）时网络慢可能导致该步耗时较长。Docker Hub 拉镜像加速需要配置 daemon 镜像站（`/etc/docker/daemon.json` 的 `registry-mirrors`，改完 `sudo systemctl restart docker`），按需自行配置。
 
 ## 常用命令
 

@@ -1,0 +1,7 @@
+# 项目级 crates.io 镜像（与宿主机全局配置一致，走阿里云）；
+# 同时被容器内 cargo 使用（Dockerfile.dev 会把它 COPY 到镜像的 CARGO_HOME）
+[source.crates-io]
+replace-with = "aliyun"
+
+[source.aliyun]
+registry = "sparse+https://mirrors.aliyun.com/crates.io-index/"

@@ -1,0 +1,86 @@
+# 开发专用编排：一条命令起全套（app + 依赖），无需手动 cargo run
+#
+# 用法：
+#   docker compose -f docker-compose.dev.yml up -d          # 起全套（首次会构建镜像+编译，较慢）
+#   docker compose -f docker-compose.dev.yml logs -f app    # 看应用日志
+#   docker compose -f docker-compose.dev.yml down -v        # 停掉并清空数据卷
+#
+# 热重载：app 容器内运行 cargo-watch，源码保存即自动增量重编译并重启应用进程
+# （容器本身不动，秒级生效；Rust 没有 JVM 式运行时热替换，这是社区标准做法）。
+# 也可以照常本地 cargo run / cargo watch（注意端口 8080 只能二选一，且本地跑时连的是宿主机 Redis）。
+
+services:
+  redis:
+    image: redis:7
+    # 不绑定宿主机端口，仅在 compose 内网可达（app 走服务名 redis:6379 访问）。
+    # 本地 cargo run 联调、或想用宿主机的 redis-cli 时，取消注释：
+    # （宿主机 6379 被占用时改成 "16379:6379" 之类）
+    # ports:
+    #   - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-dev-data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # cargo-watch 监视源码与清单，变更时杀进程并增量重编译重启
+    # （target 在独立卷里且已被忽略，不会触发自激）
+    command: >
+      cargo watch
+      --watch app/src --watch app/Cargo.toml
+      --watch migration --watch Cargo.toml --watch Cargo.lock
+      --watch config
+      -x 'run -p app'
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # 数据库文件落在挂载的 ./data 下（容器内以 root 写入，宿主机删除可能需要 sudo）
+      APP_DATABASE_URL: sqlite:///workspace/data/bynrust26-dev.db?mode=rwc
+      APP_REDIS_URL: redis://redis:6379
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-dev-only-secret}
+      APP_LOG_LEVEL: debug
+      RUST_BACKTRACE: "1"
+    volumes:
+      - .:/workspace
+      # 容器内编译产物与缓存放进卷，避免污染宿主机 target/、并跨重启复用
+      - cargo-dev-target:/workspace/target
+      - cargo-dev-registry:/usr/local/cargo/registry
+    ports:
+      - "8080:8080"
+
+  # postgres:
+  #   image: postgres:17
+  #   environment:
+  #     POSTGRES_USER: byn
+  #     POSTGRES_PASSWORD: byn
+  #     POSTGRES_DB: bynrust26
+  #   # 容器内 app 直连 postgres:5432，无需绑定宿主机端口；
+  #   # 本地 cargo run 联调时才需要：
+  #   # ports:
+  #   #   - "5432:5432"
+  #   # 并把 app 的 APP_DATABASE_URL 改为 postgres://byn:byn@postgres:5432/bynrust26
+  #   # （镜像需加编译 feature，见下方说明）
+  #   volumes:
+  #     - pg-dev-data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U byn -d bynrust26"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+
+volumes:
+  redis-dev-data:
+  cargo-dev-target:
+  cargo-dev-registry:
+  # pg-dev-data:
+
+# 换 PostgreSQL 联调：app.command 末尾的 -x 改为
+#   -x 'run -p app --no-default-features --features postgres'
+# 并取消上方 postgres 服务注释
