@@ -23,3 +23,7 @@ blacklist_enabled = true
 [log]
 # tracing env-filter 语法
 level = "info"
+
+[static]
+# 静态文件目录，挂载在 /static 路径下；相对路径基于应用启动时的工作目录
+dir = "static"

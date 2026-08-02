@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub redis: RedisConfig,
     pub jwt: JwtConfig,
     pub log: LogConfig,
+    #[serde(rename = "static")]
+    pub static_: StaticConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,6 +48,12 @@ pub struct LogConfig {
     pub level: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct StaticConfig {
+    /// 静态文件目录（挂载在 /static 下），相对路径基于应用工作目录
+    pub dir: String,
+}
+
 /// 单层环境变量简写 -> 嵌套配置键
 const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_SERVER_HOST", "server.host"),
@@ -56,6 +64,7 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_JWT_TTL_SECS", "jwt.ttl_secs"),
     ("APP_JWT_BLACKLIST_ENABLED", "jwt.blacklist_enabled"),
     ("APP_LOG_LEVEL", "log.level"),
+    ("APP_STATIC_DIR", "static.dir"),
 ];
 
 impl AppConfig {

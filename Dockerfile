@@ -35,8 +35,9 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
     && useradd --create-home --uid 10001 app
 
 WORKDIR /app
-# 运行时需要 config/default.toml（config/local.toml 与 .env 可选）
+# 运行时需要 config/default.toml（config/local.toml 与 .env 可选）与 static/ 静态文件目录
 COPY config ./config
+COPY static ./static
 COPY --from=builder /build/target/release/bynrust26 /usr/local/bin/bynrust26
 
 # SQLite 数据目录（建议挂卷持久化）

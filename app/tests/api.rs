@@ -5,7 +5,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use app::config::{AppConfig, DatabaseConfig, JwtConfig, LogConfig, RedisConfig, ServerConfig};
+use app::config::{
+    AppConfig, DatabaseConfig, JwtConfig, LogConfig, RedisConfig, ServerConfig, StaticConfig,
+};
 use app::routes::create_router;
 use app::state::AppState;
 use axum::Router;
@@ -35,6 +37,10 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
         },
         log: LogConfig {
             level: "warn".into(),
+        },
+        static_: StaticConfig {
+            // 编译期定位 workspace 根的 static/ 目录，与测试运行时的工作目录无关
+            dir: concat!(env!("CARGO_MANIFEST_DIR"), "/../static").into(),
         },
     }
 }
@@ -362,4 +368,42 @@ async fn openapi_json_is_served() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["info"]["title"], "bynrust26 API");
     assert!(body["paths"]["/api/v1/users"].is_object());
+}
+
+#[tokio::test]
+async fn static_files_are_served() {
+    let app = build_app(None, false).await;
+
+    async fn get_header(app: &Router, uri: &str, name: header::HeaderName) -> (StatusCode, String) {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let content_type = response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_owned();
+        (response.status(), content_type)
+    }
+
+    // 目录请求默认返回 index.html
+    let (status, ct) = get_header(&app, "/static/", header::CONTENT_TYPE).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ct.contains("text/html"), "unexpected content-type: {ct}");
+
+    let (status, ct) = get_header(&app, "/static/app.js", header::CONTENT_TYPE).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ct.contains("javascript"), "unexpected content-type: {ct}");
+
+    let (status, _) = get_header(&app, "/static/not-exist.txt", header::CONTENT_TYPE).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

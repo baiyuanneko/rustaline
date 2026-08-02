@@ -8,6 +8,7 @@ Cargo workspace，两个 crate：
 bynrust26/
 ├── Cargo.toml            # workspace 根，[workspace.dependencies] 统一版本
 ├── config/default.toml   # 默认配置（local.toml 为本机覆盖，已 gitignore）
+├── static/               # 静态文件目录，ServeDir 挂载于 /static（目录请求返回 index.html）
 ├── migration/            # sea-orm-migration 独立 crate（CLI + Migrator）
 │   └── src/m*_*.rs       # 迁移文件，按时间戳命名并注册进 lib.rs 的 Migrator
 └── app/                  # 应用 crate（bin 名 bynrust26，lib 名 app）

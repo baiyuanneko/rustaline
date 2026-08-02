@@ -4,11 +4,12 @@ Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 Po
 
 ## 技术栈
 
-- Web：axum 0.8、tower-http（trace / cors）
+- Web：axum 0.8、tower-http（trace / cors / fs）
 - ORM：sea-orm 2 + sea-orm-migration（独立 `migration` crate）
 - 认证：jsonwebtoken 签发 access token（jti = uuid），logout 后 jti 写入 Redis 黑名单
 - 配置：`config` crate 分层加载（`config/default.toml` < `config/local.toml` < `APP_*` 环境变量），dotenvy 加载 `.env`
 - 文档：utoipa 5 + utoipa-swagger-ui，Swagger UI 在 `/swagger-ui/`
+- 静态文件：`ServeDir` 挂载 `static/` 于 `/static`，含原生 HTML/JS 示例页
 
 ## 快速开始
 
@@ -32,6 +33,7 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 
 - Swagger UI: http://localhost:8080/swagger-ui/
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
+- 静态示例页: http://localhost:8080/static/
 - 健康检查: `curl http://localhost:8080/health`
 
 示例调用：
