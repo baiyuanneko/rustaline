@@ -29,6 +29,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+      args:
+        # 容器内 dev 用户的 UID/GID，与宿主机用户保持一致（默认 1000），
+        # 使挂载目录里写出的文件归属宿主机当前用户。不同 UID 时可用环境变量覆盖：
+        #   DEV_UID=$(id -u) DEV_GID=$(id -g) docker compose -f docker-compose.dev.yml up -d --build
+        DEV_UID: ${DEV_UID:-1000}
+        DEV_GID: ${DEV_GID:-1000}
     # cargo-watch 监视源码与清单，变更时杀进程并增量重编译重启
     # （target 在独立卷里且已被忽略，不会触发自激）
     command: >
@@ -41,7 +47,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      # 数据库文件落在挂载的 ./data 下（容器内以 root 写入，宿主机删除可能需要 sudo）
+      # 数据库文件落在挂载的 ./data 下（容器以非 root 的 dev 用户写入，归属宿主机当前用户）
       APP_DATABASE_URL: sqlite:///workspace/data/bynrust26-dev.db?mode=rwc
       APP_REDIS_URL: redis://redis:6379
       APP_JWT_SECRET: ${APP_JWT_SECRET:-dev-only-secret}

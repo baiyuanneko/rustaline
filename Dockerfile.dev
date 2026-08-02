@@ -1,6 +1,7 @@
 # 开发专用镜像：与 Dockerfile（生产多阶段构建）不同，这里保留完整工具链，
 # 源码在运行时通过 volume 挂载，由容器内 cargo-watch 监视改动并增量重编译重启。
-# gcc 是必需的：sqlx-sqlite 会编译内嵌的 libsqlite3（C 代码），rust slim 镜像默认没有 C 链接器。
+# gcc 是必需的：sqlx-sqlite 会编译内嵌的 libsqlite3（C 代码），rust slim 镜像默认没有 C 链接器；
+# curl/ca-certificates 是 utoipa-swagger-ui 的 build script 下载 Swagger UI zip 所需。
 FROM rust:1-slim
 
 # apt 换阿里云镜像加速（trixie 使用 deb822 格式源文件）
@@ -15,6 +16,17 @@ COPY .cargo/config.toml /usr/local/cargo/config.toml
 
 RUN cargo install cargo-watch --locked
 
+# 以与宿主机同 UID/GID 的非 root 用户运行（compose 构建时可用 DEV_UID/DEV_GID 覆盖），
+# 使容器写出的文件（./data、编译产物卷）在宿主机上归属当前用户而非 root
+ARG DEV_UID=1000
+ARG DEV_GID=1000
+RUN groupadd --gid ${DEV_GID} dev \
+    && useradd --uid ${DEV_UID} --gid dev --create-home dev \
+    && chown -R dev:dev /usr/local/cargo \
+    && mkdir -p /workspace/target \
+    && chown -R dev:dev /workspace
+
+USER dev
 WORKDIR /workspace
 
 # 实际命令在 docker-compose.dev.yml 里定义（cargo watch -x 'run -p app'）
