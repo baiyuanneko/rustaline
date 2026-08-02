@@ -1,5 +1,3 @@
-//! OpenAPI 聚合：/api-doc/openapi.json + Swagger UI 挂 /swagger-ui
-
 use utoipa::Modify;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::{OpenApi, openapi};
@@ -20,6 +18,14 @@ use crate::{dto, handlers};
         handlers::user::get_user,
         handlers::user::update_user,
         handlers::user::delete_user,
+        handlers::comment::list_comments,
+        handlers::comment::submit_comment,
+        handlers::admin_comment::list_admin_comments,
+        handlers::admin_comment::update_comment_status,
+        handlers::admin_comment::delete_comment,
+        handlers::admin_comment::import_valine,
+        handlers::admin_comment::get_stats,
+        handlers::admin_comment::get_admin_config,
     ),
     components(schemas(
         dto::HealthResponse,
@@ -31,12 +37,27 @@ use crate::{dto, handlers};
         dto::CreateUserRequest,
         dto::UpdateUserRequest,
         dto::UserResponse,
+        dto::CommentCreateRequest,
+        dto::CommentPublicResponse,
+        dto::CommentListResponse,
+        dto::AdminCommentResponse,
+        dto::AdminCommentListResponse,
+        dto::CommentStatusUpdate,
+        dto::UrlCount,
+        dto::CommentStatsResponse,
+        dto::CommentConfigResponse,
+        dto::AdminConfigResponse,
+        dto::ValineImportItem,
+        dto::ValineImportRequest,
+        dto::ValineImportReport,
     )),
     modifiers(&SecurityAddon),
     tags(
         (name = "health", description = "健康检查"),
         (name = "auth", description = "注册 / 登录 / 登出"),
         (name = "users", description = "用户 CRUD"),
+        (name = "comments", description = "公共评论接口（匿名）"),
+        (name = "comments-admin", description = "评论管理接口（需认证）"),
     )
 )]
 pub struct ApiDoc;

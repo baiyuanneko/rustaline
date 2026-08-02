@@ -1,10 +1,12 @@
 //! 启动流程：加载 config → 初始化 tracing → 连 DB → 跑迁移 → 连 Redis → 构建 router → serve + graceful shutdown
 
 use std::error::Error;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
 use app::config::AppConfig;
+use app::middleware::rate_limit::RateLimiter;
 use app::state::AppState;
 use migration::{Migrator, MigratorTrait};
 use redis::aio::ConnectionManager;
@@ -40,6 +42,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         db,
         redis,
         config: Arc::new(config),
+        comment_rate_limiter: RateLimiter::new(),
     };
 
     // 6. 构建路由并启动服务
@@ -49,9 +52,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("listening on http://{addr}");
     tracing::info!("swagger ui at http://{addr}/swagger-ui/");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // into_make_service_with_connect_info 注入 ConnectInfo<SocketAddr> 到请求扩展，
+    // 供评论提交 handler 与限流中间件提取客户端真实 IP（无反向代理时为 socket addr）。
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     tracing::info!("shutdown complete");
     Ok(())

@@ -27,3 +27,13 @@ level = "info"
 [static]
 # 静态文件目录，挂载在 /static 路径下；相对路径基于应用启动时的工作目录
 dir = "static"
+
+[comment]
+# true 时新评论 status=pending，需审核后才公开
+moderation = false
+# 评论内容最大长度
+max_length = 10000
+# 单 IP 每分钟最多提交数（内存滑动窗口限流）
+rate_limit_per_minute = 5
+# 未提供昵称时的默认值
+default_nick = "Anonymous"

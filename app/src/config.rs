@@ -16,6 +16,8 @@ pub struct AppConfig {
     pub log: LogConfig,
     #[serde(rename = "static")]
     pub static_: StaticConfig,
+    #[serde(default)]
+    pub comment: CommentConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -54,6 +56,43 @@ pub struct StaticConfig {
     pub dir: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommentConfig {
+    /// true 时新评论 status=pending，需审核后才公开
+    #[serde(default)]
+    pub moderation: bool,
+    /// 评论内容最大长度
+    #[serde(default = "default_max_length")]
+    pub max_length: usize,
+    /// 单 IP 每分钟最多提交数
+    #[serde(default = "default_rate_limit_per_minute")]
+    pub rate_limit_per_minute: u32,
+    /// 未提供昵称时的默认值
+    #[serde(default = "default_nick")]
+    pub default_nick: String,
+}
+
+fn default_max_length() -> usize {
+    10000
+}
+fn default_rate_limit_per_minute() -> u32 {
+    5
+}
+fn default_nick() -> String {
+    "Anonymous".to_owned()
+}
+
+impl Default for CommentConfig {
+    fn default() -> Self {
+        Self {
+            moderation: false,
+            max_length: default_max_length(),
+            rate_limit_per_minute: default_rate_limit_per_minute(),
+            default_nick: default_nick(),
+        }
+    }
+}
+
 /// 单层环境变量简写 -> 嵌套配置键
 const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_SERVER_HOST", "server.host"),
@@ -65,6 +104,13 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_JWT_BLACKLIST_ENABLED", "jwt.blacklist_enabled"),
     ("APP_LOG_LEVEL", "log.level"),
     ("APP_STATIC_DIR", "static.dir"),
+    ("APP_COMMENT_MODERATION", "comment.moderation"),
+    ("APP_COMMENT_MAX_LENGTH", "comment.max_length"),
+    (
+        "APP_COMMENT_RATE_LIMIT_PER_MINUTE",
+        "comment.rate_limit_per_minute",
+    ),
+    ("APP_COMMENT_DEFAULT_NICK", "comment.default_nick"),
 ];
 
 impl AppConfig {

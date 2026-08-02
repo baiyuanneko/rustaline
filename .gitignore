@@ -2,3 +2,11 @@
 .env
 data/
 config/local.toml
+
+# 浏览器自动化验证产物
+.playwright-mcp/
+/demo-page.png
+/admin-settings.png
+
+# AI 代理工作计划文档
+.sisyphus/

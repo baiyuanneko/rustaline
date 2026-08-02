@@ -2,6 +2,8 @@
 
 Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 PostgreSQL / MySQL）+ JWT 认证（Redis 黑名单）+ utoipa OpenAPI。
 
+内置 **rustaline 评论系统**（Valine 自托管替代品）：匿名评论、楼中楼回复、LeanCloud 数据导入、原生 JS 管理面板与评论 SDK。
+
 ## 技术栈
 
 - Web：axum 0.8、tower-http（trace / cors / fs）
@@ -9,7 +11,8 @@ Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 Po
 - 认证：jsonwebtoken 签发 access token（jti = uuid），logout 后 jti 写入 Redis 黑名单
 - 配置：`config` crate 分层加载（`config/default.toml` < `config/local.toml` < `APP_*` 环境变量），dotenvy 加载 `.env`
 - 文档：utoipa 5 + utoipa-swagger-ui，Swagger UI 在 `/swagger-ui/`
-- 静态文件：`ServeDir` 挂载 `static/` 于 `/static`，含原生 HTML/JS 示例页
+- 静态文件：`ServeDir` 挂载 `static/` 于 `/static`，含评论 SDK、演示页与管理面板（均为零依赖原生 JS）
+- 评论反垃圾：单 IP 内存滑动窗口限流 + 蜜罐字段 + 可选先审后发（moderation）
 
 ## 快速开始
 
@@ -35,8 +38,69 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 
 - Swagger UI: http://localhost:8080/swagger-ui/
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
-- 静态示例页: http://localhost:8080/static/
+- 评论演示页: http://localhost:8080/static/
+- 管理面板: http://localhost:8080/static/admin/（先用下方 register 创建管理员）
+- 脚手架示例页: http://localhost:8080/static/scaffold-demo.html
 - 健康检查: `curl http://localhost:8080/health`
+
+## rustaline 评论系统（Valine 替代品）
+
+自托管匿名评论服务，数据模型兼容 Valine/LeanCloud（objectId/QQAvatar/pid/rid/insertedAt 等字段全保留），可无损导入历史评论。
+
+### 博客接入（评论 SDK）
+
+任意静态页面引入 SDK + 两行初始化即可：
+
+```html
+<script src="https://你的域名/static/sdk/rustaline.js"></script>
+<div id="comments"></div>
+<script>
+  new Rustaline({
+    el: '#comments',
+    server: 'https://你的域名',   // 同源部署可留空 ''
+    url: location.pathname,       // 文章标识，默认当前路径
+  });
+</script>
+```
+
+SDK 零依赖单文件：楼中楼渲染、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾、全量 textContent 防 XSS、深浅色自适应，CSS 变量（`--rs-*`）可定制。
+
+### 公共接口（匿名，无需登录）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/comments?url=<文章URL>` | 该文章下全部 approved 评论（扁平含 pid/rid，前端组树） |
+| POST | `/api/v1/comments` | 提交评论 `{ url, comment, nick?, mail?, link?, pid?, rid? }`；ip/ua 服务端采集，限流 429 |
+
+### 管理接口（需管理员 JWT）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/admin/comments` | 分页列表（status/url/keyword 过滤），含 ip/mail/ua |
+| PATCH | `/api/v1/admin/comments/{id}` | 审核：`{ status: "approved"\|"pending"\|"spam" }` |
+| DELETE | `/api/v1/admin/comments/{id}` | 删除（子评论自动降级为根评论） |
+| POST | `/api/v1/admin/comments/import/valine` | 导入 LeanCloud 导出 JSON（单批 ≤1000 条，按 objectId 幂等） |
+| GET | `/api/v1/admin/comments/stats` | 统计（按状态计数、今日新增、url 排行） |
+| GET | `/api/v1/admin/config` | 当前生效的 comment 配置（只读） |
+
+### 管理面板
+
+`/static/admin/` 零依赖原生 JS 单页应用：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看。
+
+### 导入 Valine 历史数据
+
+LeanCloud 控制台导出 Comment 表 JSON 后，在管理面板「导入」页选择文件即可；兼容 `{"results":[...]}` 与顶层数组两种格式、`{"__type":"Date","iso":...}` 与裸 ISO 两种日期形态。已存在的 objectId 自动跳过，可安全重复导入。
+
+### 评论配置（`[comment]` 段）
+
+| 环境变量（简写） | 嵌套写法 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `APP_COMMENT_MODERATION` | `APP_COMMENT__MODERATION` | true 时新评论需审核后才公开 | `false` |
+| `APP_COMMENT_MAX_LENGTH` | `APP_COMMENT__MAX_LENGTH` | 评论内容最大长度 | `10000` |
+| `APP_COMMENT_RATE_LIMIT_PER_MINUTE` | `APP_COMMENT__RATE_LIMIT_PER_MINUTE` | 单 IP 每分钟最多提交数 | `5` |
+| `APP_COMMENT_DEFAULT_NICK` | `APP_COMMENT__DEFAULT_NICK` | 未填昵称时的默认昵称 | `Anonymous` |
+
+注意：时间字段为 UTC 朴素时间（无时区后缀），前端展示时已按 UTC 解析转本地；跨域部署 SDK 时保持默认放开 CORS 或按需收紧（`routes/mod.rs` 的 CorsLayer）。
 
 示例调用：
 
