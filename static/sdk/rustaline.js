@@ -2,7 +2,7 @@
  * rustaline.js — 无依赖、原生 ES2018+ 评论组件库（Valine 自托管替代品）
  *
  * 用法：
- *   <script src="/static/sdk/rustaline.js"></script>
+ *   <script src="/sdk/rustaline.js"></script>
  *   <script>new Rustaline({ el: '#comments' });</script>
  *
  * 支持同页面多实例：每个实例拥有独立的 el/server/url 配置与内部状态。

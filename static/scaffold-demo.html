@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- bynrust26 脚手架示例页（从 static/index.html 迁移而来）。
      演示从浏览器调用后端 API：/health 与未鉴权访问 /api/v1/users 的 401 行为。
-     评论 SDK 演示请回到 /static/ 主页。 -->
+     评论 SDK 演示请回到 / 主页。 -->
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -22,10 +22,10 @@
   </style>
 </head>
 <body>
-  <p class="back"><a href="/static/">← 返回 rustaline 评论演示</a></p>
+  <p class="back"><a href="/">← 返回 rustaline 评论演示</a></p>
 
   <h1>bynrust26 脚手架示例</h1>
-  <p>本页面由 axum 的 <code>ServeDir</code> 从 <code>/static</code> 提供服务。</p>
+  <p>本页面由 axum 的 <code>ServeDir</code> 从根路径提供服务（<code>ServeDir</code> 兜底挂载 static/ 目录）。</p>
 
   <div class="card">
     <h2>服务健康状态（GET /health）</h2>
@@ -43,6 +43,6 @@
     <p><a href="/swagger-ui/" target="_blank">打开 Swagger UI →</a></p>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

@@ -88,6 +88,19 @@ pub async fn verify_credentials(
     }
 }
 
+/// 启动时种子管理员：账号不存在则创建并返回 true；已存在则跳过返回 false
+pub async fn ensure_initial_admin(
+    db: &DatabaseConnection,
+    username: &str,
+    password: &str,
+) -> Result<bool, AppError> {
+    if find_by_username(db, username).await?.is_some() {
+        return Ok(false);
+    }
+    create_user(db, username, password).await?;
+    Ok(true)
+}
+
 pub async fn list_users(db: &DatabaseConnection) -> Result<Vec<user::Model>, AppError> {
     Ok(user::Entity::find().all(db).await?)
 }

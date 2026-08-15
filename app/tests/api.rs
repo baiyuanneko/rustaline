@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use app::config::{
-    AppConfig, CommentConfig, DatabaseConfig, JwtConfig, LogConfig, RedisConfig, ServerConfig,
-    StaticConfig,
+    AppConfig, CommentConfig, DatabaseConfig, InitialAdminConfig, JwtConfig, LogConfig,
+    RedisConfig, ServerConfig, StaticConfig,
 };
 use app::middleware::rate_limit::RateLimiter;
 use app::routes::create_router;
@@ -44,6 +44,7 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
             dir: concat!(env!("CARGO_MANIFEST_DIR"), "/../static").into(),
         },
         comment: CommentConfig::default(),
+        initial_admin: InitialAdminConfig::default(),
     }
 }
 
@@ -424,16 +425,25 @@ async fn static_files_are_served() {
         (response.status(), content_type)
     }
 
-    // 目录请求默认返回 index.html
-    let (status, ct) = get_header(&app, "/static/", header::CONTENT_TYPE).await;
+    // 目录请求默认返回 index.html（静态目录兜底挂载在根路径）
+    let (status, ct) = get_header(&app, "/", header::CONTENT_TYPE).await;
     assert_eq!(status, StatusCode::OK);
     assert!(ct.contains("text/html"), "unexpected content-type: {ct}");
 
-    let (status, ct) = get_header(&app, "/static/app.js", header::CONTENT_TYPE).await;
+    let (status, ct) = get_header(&app, "/app.js", header::CONTENT_TYPE).await;
     assert_eq!(status, StatusCode::OK);
     assert!(ct.contains("javascript"), "unexpected content-type: {ct}");
 
-    let (status, _) = get_header(&app, "/static/not-exist.txt", header::CONTENT_TYPE).await;
+    // 管理面板目录请求返回其 index.html
+    let (status, ct) = get_header(&app, "/admin/", header::CONTENT_TYPE).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ct.contains("text/html"), "unexpected content-type: {ct}");
+
+    let (status, _) = get_header(&app, "/not-exist.txt", header::CONTENT_TYPE).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // 旧的 /static 前缀已下线
+    let (status, _) = get_header(&app, "/static/index.html", header::CONTENT_TYPE).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -974,4 +984,38 @@ async fn comment_honeypot() {
     )
     .await;
     assert_eq!(body["count"], 0, "honeypot comment must not be persisted");
+}
+
+#[tokio::test]
+async fn initial_admin_seed_is_idempotent() {
+    let mut opt = ConnectOptions::new("sqlite::memory:");
+    opt.max_connections(1);
+    let db = Database::connect(opt).await.expect("connect sqlite memory");
+    Migrator::up(&db, None).await.expect("run migrations");
+
+    let created = app::services::user_service::ensure_initial_admin(&db, "root", "rootpass123")
+        .await
+        .expect("seed admin");
+    assert!(created, "first seed must create the account");
+
+    // 已存在则跳过：即使传入不同密码也不覆盖原账号
+    let created = app::services::user_service::ensure_initial_admin(&db, "root", "otherpass999")
+        .await
+        .expect("seed admin again");
+    assert!(!created, "second seed must skip existing account");
+
+    assert!(
+        app::services::user_service::verify_credentials(&db, "root", "rootpass123")
+            .await
+            .expect("verify original password")
+            .is_some(),
+        "original password must still work"
+    );
+    assert!(
+        app::services::user_service::verify_credentials(&db, "root", "otherpass999")
+            .await
+            .expect("verify overwritten password")
+            .is_none(),
+        "skipped seed must not overwrite the password"
+    );
 }

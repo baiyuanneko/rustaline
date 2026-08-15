@@ -35,6 +35,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("running migrations");
     Migrator::up(&db, None).await?;
 
+    // 4.5 初始管理员种子：initial_admin 两个值都配置时，账号不存在才创建（幂等）
+    seed_initial_admin(&db, &config).await?;
+
     // 5. 连接 Redis。黑名单启用时 Redis 是强依赖：连不上直接启动失败
     let redis = connect_redis(&config).await?;
 
@@ -62,6 +65,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await?;
 
     tracing::info!("shutdown complete");
+    Ok(())
+}
+
+/// 配置了 APP_INITIAL_ADMIN_USERNAME/PASSWORD 时确保管理员存在；只配一个则告警忽略。
+/// 密码只用于哈希落库，绝不写日志
+async fn seed_initial_admin(
+    db: &sea_orm::DatabaseConnection,
+    config: &AppConfig,
+) -> Result<(), Box<dyn Error>> {
+    let init = &config.initial_admin;
+    match (&init.username, &init.password) {
+        (Some(username), Some(password)) => {
+            if app::services::user_service::ensure_initial_admin(db, username, password).await? {
+                tracing::info!("initial admin '{username}' created");
+            } else {
+                tracing::debug!("initial admin '{username}' already exists, skipping");
+            }
+        }
+        (None, None) => {}
+        _ => {
+            tracing::warn!(
+                "initial_admin 配置不完整：APP_INITIAL_ADMIN_USERNAME 与 APP_INITIAL_ADMIN_PASSWORD 需同时设置，已忽略"
+            );
+        }
+    }
     Ok(())
 }
 

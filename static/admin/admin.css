@@ -129,6 +129,12 @@
   box-sizing: border-box;
 }
 
+/* hidden 属性必须生效：类选择器的 display 会覆盖 UA 默认的 [hidden]{display:none}，
+   已在 badge / dialog-portal / topbar__user 三处踩过坑，这里全局兜底 */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -290,7 +296,7 @@ ul, ol {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
   border-radius: var(--radius);
   color: var(--text-muted);
   font-size: var(--text-base);
@@ -310,7 +316,7 @@ ul, ol {
 .nav__item.is-active::before {
   content: "";
   position: absolute;
-  left: -var(--sp-3);
+  left: calc(-1 * var(--sp-3) - 4px);
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
@@ -330,15 +336,15 @@ ul, ol {
   flex: 1;
 }
 .nav__badge {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: var(--danger);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   border-radius: var(--radius-full);
@@ -1374,9 +1380,6 @@ ul, ol {
   align-items: center;
   justify-content: center;
   padding: var(--sp-4);
-}
-.dialog-portal[hidden] {
-  display: none;
 }
 .dialog-portal__backdrop {
   position: absolute;

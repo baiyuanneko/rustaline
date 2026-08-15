@@ -8,7 +8,7 @@ Cargo workspace，两个 crate：
 bynrust26/
 ├── Cargo.toml            # workspace 根，[workspace.dependencies] 统一版本
 ├── config/default.toml   # 默认配置（local.toml 为本机覆盖，已 gitignore）
-├── static/               # 静态文件目录，ServeDir 挂载于 /static（目录请求返回 index.html）
+├── static/               # 静态文件目录，ServeDir 兜底挂载于根路径（目录请求返回 index.html）
 │   ├── index.html        # rustaline 评论系统演示主页（引入 sdk/rustaline.js）
 │   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示）
 │   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，全局 Rustaline 类，支持多实例

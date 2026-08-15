@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub static_: StaticConfig,
     #[serde(default)]
     pub comment: CommentConfig,
+    #[serde(default)]
+    pub initial_admin: InitialAdminConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -52,7 +54,7 @@ pub struct LogConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct StaticConfig {
-    /// 静态文件目录（挂载在 /static 下），相对路径基于应用工作目录
+    /// 静态文件目录（兜底挂载在根路径），相对路径基于应用工作目录
     pub dir: String,
 }
 
@@ -93,6 +95,13 @@ impl Default for CommentConfig {
     }
 }
 
+/// 启动时确保存在的初始管理员账号；两个字段都设置才会生效
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct InitialAdminConfig {
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 /// 单层环境变量简写 -> 嵌套配置键
 const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_SERVER_HOST", "server.host"),
@@ -111,6 +120,8 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
         "comment.rate_limit_per_minute",
     ),
     ("APP_COMMENT_DEFAULT_NICK", "comment.default_nick"),
+    ("APP_INITIAL_ADMIN_USERNAME", "initial_admin.username"),
+    ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
 ];
 
 impl AppConfig {

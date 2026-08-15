@@ -14,7 +14,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(handlers::health::health))
         .nest("/api/v1", api_v1(state.clone()))
         .merge(openapi::swagger_ui())
-        .nest_service("/static", ServeDir::new(&state.config.static_.dir))
+        // 静态文件兜底：显式路由（/health、/api/**、/swagger-ui、/api-doc）优先，
+        // 其余路径落到 static/ 目录（/ -> index.html，/admin/ -> 管理面板）
+        .fallback_service(ServeDir::new(&state.config.static_.dir))
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()

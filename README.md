@@ -11,7 +11,7 @@ Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 Po
 - 认证：jsonwebtoken 签发 access token（jti = uuid），logout 后 jti 写入 Redis 黑名单
 - 配置：`config` crate 分层加载（`config/default.toml` < `config/local.toml` < `APP_*` 环境变量），dotenvy 加载 `.env`
 - 文档：utoipa 5 + utoipa-swagger-ui，Swagger UI 在 `/swagger-ui/`
-- 静态文件：`ServeDir` 挂载 `static/` 于 `/static`，含评论 SDK、演示页与管理面板（均为零依赖原生 JS）
+- 静态文件：`ServeDir` 兜底挂载 `static/` 于根路径（显式路由 `/api/**`、`/health`、`/swagger-ui` 优先），含评论 SDK、演示页与管理面板（均为零依赖原生 JS）
 - 评论反垃圾：单 IP 内存滑动窗口限流 + 蜜罐字段 + 可选先审后发（moderation）
 
 ## 快速开始
@@ -38,9 +38,9 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 
 - Swagger UI: http://localhost:8080/swagger-ui/
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
-- 评论演示页: http://localhost:8080/static/
-- 管理面板: http://localhost:8080/static/admin/（先用下方 register 创建管理员）
-- 脚手架示例页: http://localhost:8080/static/scaffold-demo.html
+- 评论演示页: http://localhost:8080/
+- 管理面板: http://localhost:8080/admin/（先用下方 register 创建管理员）
+- 脚手架示例页: http://localhost:8080/scaffold-demo.html
 - 健康检查: `curl http://localhost:8080/health`
 
 ## rustaline 评论系统（Valine 替代品）
@@ -52,7 +52,7 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 任意静态页面引入 SDK + 两行初始化即可：
 
 ```html
-<script src="https://你的域名/static/sdk/rustaline.js"></script>
+<script src="https://你的域名/sdk/rustaline.js"></script>
 <div id="comments"></div>
 <script>
   new Rustaline({
@@ -85,7 +85,7 @@ SDK 零依赖单文件：楼中楼渲染、回复表单、头像推导（QQ 头�
 
 ### 管理面板
 
-`/static/admin/` 零依赖原生 JS 单页应用：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看。
+`/admin/` 零依赖原生 JS 单页应用：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看。
 
 ### 导入 Valine 历史数据
 
@@ -161,6 +161,8 @@ sea-orm-cli generate entity -o app/src/entities --with-serde none
 | `APP_JWT_SECRET` | `APP_JWT__SECRET` | JWT 签名密钥（生产必改） | `change-me-in-production` |
 | `APP_JWT_TTL_SECS` | `APP_JWT__TTL_SECS` | token 有效期（秒） | `86400`（24h） |
 | `APP_JWT_BLACKLIST_ENABLED` | `APP_JWT__BLACKLIST_ENABLED` | 是否启用 logout 黑名单；启用时 Redis 不可达则启动失败 | `true` |
+| `APP_INITIAL_ADMIN_USERNAME` | `APP_INITIAL_ADMIN__USERNAME` | 初始管理员用户名（与下项同时设置才生效） | 无 |
+| `APP_INITIAL_ADMIN_PASSWORD` | `APP_INITIAL_ADMIN__PASSWORD` | 初始管理员密码；启动时检测，账号不存在才创建（幂等，已存在不覆盖） | 无 |
 | `APP_LOG_LEVEL` | `APP_LOG__LEVEL` | 日志级别（env-filter 语法） | `info` |
 
 ## 测试
