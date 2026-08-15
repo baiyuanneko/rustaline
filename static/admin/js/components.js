@@ -1,74 +1,124 @@
-// 通用 UI 组件。所有用户输入字符串均通过 textContent 渲染，杜绝 innerHTML 注入。
-// 静态结构模板使用 DOM API 构造，不混入变量插值。
+// 通用 UI 组件：基于 mdui 2 Web Components 的封装。
+// 安全约定：所有用户输入字符串均通过 textContent / createTextNode 渲染。
+// 静态 SVG 常量只允许出现在本文件的 ICONS 中，禁止拼接任何用户数据。
 
 const ICONS = {
-  ok: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`,
-  err: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>`,
-  warn: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L2 20h20L12 3z"/><path d="M12 10v4M12 17v.5"/></svg>`,
-  info: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v.5M11 12h1v5h1"/></svg>`,
-  close: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
-  refresh: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>`,
+  ok: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`,
+  err: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>`,
+  warn: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L2 20h20L12 3z"/><path d="M12 10v4M12 17v.5"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v.5M11 12h1v5h1"/></svg>`,
+  close: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+  refresh: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>`,
   empty: `<svg viewBox="0 0 96 96" width="64" height="64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 28h64l-6 44a4 4 0 0 1-4 4H26a4 4 0 0 1-4-4L16 28z"/><path d="M32 28v-6a16 16 0 0 1 32 0v6"/><circle cx="38" cy="50" r="2" fill="currentColor"/><circle cx="58" cy="50" r="2" fill="currentColor"/></svg>`,
+  'chevron-left': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>`,
+  upload: `<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>`,
+  'chevron-right': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`,
 };
 
-function svg(icon) {
-  const wrap = document.createElement("span");
-  wrap.style.display = "inline-flex";
-  wrap.innerHTML = ICONS[icon] || "";
-  return wrap.firstElementChild || wrap;
+/** 创建 mdui-icon，并使用项目内联 SVG，不加载 Material Icons 字体 */
+export function icon(name) {
+  const node = document.createElement("mdui-icon");
+  node.setAttribute("aria-hidden", "true");
+  const template = document.createElement("template");
+  template.innerHTML = ICONS[name] || "";
+  while (template.content.firstChild) node.appendChild(template.content.firstChild);
+  return node;
 }
 
-// ---- Toast ----
-const TOAST_STACK_ID = "toast-stack";
+export function svg(name) {
+  return icon(name);
+}
 
+/**
+ * 极简 DOM 构造助手。
+ * - props.text 使用 textContent
+ * - props.onXxx 绑定事件
+ * - 其余 key 作为 DOM property 赋值（mdui 组件属性也可直接设置）
+ */
+export function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  if (props) {
+    for (const [key, value] of Object.entries(props)) {
+      if (value == null || value === false) continue;
+      if (key === "class" || key === "className") {
+        node.className = value;
+      } else if (key === "text") {
+        node.textContent = value;
+      } else if (key === "style" && typeof value === "object") {
+        Object.assign(node.style, value);
+      } else if (key === "dataset" && typeof value === "object") {
+        Object.assign(node.dataset, value);
+      } else if (key === "attrs" && typeof value === "object") {
+        for (const [ak, av] of Object.entries(value)) node.setAttribute(ak, av === true ? "" : av);
+      } else if (key.startsWith("on") && typeof value === "function") {
+        node.addEventListener(key.slice(2).toLowerCase(), value);
+      } else {
+        try {
+          node[key] = value;
+        } catch (_) {
+          node.setAttribute(key, value === true ? "" : value);
+        }
+      }
+    }
+  }
+  appendChildren(node, children);
+  return node;
+}
+
+export function appendChildren(parent, children) {
+  for (const child of children) {
+    if (child == null || child === false) continue;
+    if (Array.isArray(child)) {
+      appendChildren(parent, child);
+    } else if (typeof child === "string" || typeof child === "number") {
+      parent.appendChild(document.createTextNode(String(child)));
+    } else {
+      parent.appendChild(child);
+    }
+  }
+  return parent;
+}
+
+export function clear(node) {
+  node.replaceChildren();
+  return node;
+}
+
+// ---- Toast / Snackbar ----
 export function toast({ type = "info", title = "", message = "", duration = 4000 } = {}) {
-  const stack = document.getElementById(TOAST_STACK_ID);
-  if (!stack) return;
+  const snackbar = el("mdui-snackbar", {
+    class: `toast toast--${type}`,
+    placement: "bottom",
+    autoCloseDelay: duration,
+    closeable: false,
+  });
 
-  const el = document.createElement("div");
-  el.className = `toast toast--${type}`;
-  el.setAttribute("role", type === "err" ? "alert" : "status");
+  const iconNode = icon(type === "ok" ? "ok" : type === "err" ? "err" : type === "warn" ? "warn" : "info");
+  iconNode.style.marginRight = "10px";
+  iconNode.style.flex = "0 0 auto";
+  if (type === "err") iconNode.style.color = "rgb(var(--mdui-color-error))";
+  else if (type === "warn") iconNode.style.color = "#f59e0b";
+  snackbar.appendChild(iconNode);
 
-  const icon = document.createElement("span");
-  icon.className = "toast__icon";
-  icon.appendChild(svg(type === "ok" ? "ok" : type === "err" ? "err" : type === "warn" ? "warn" : "info"));
-
-  const body = document.createElement("div");
-  body.className = "toast__body";
+  const body = el("span", { style: { flex: "1 1 auto", minWidth: "0" } });
   if (title) {
-    const t = document.createElement("div");
-    t.className = "toast__title";
-    t.textContent = title;
+    const t = el("strong", { text: title, style: { marginRight: "8px" } });
     body.appendChild(t);
   }
-  if (message) {
-    const m = document.createElement("div");
-    m.className = "toast__msg";
-    m.textContent = message;
-    body.appendChild(m);
-  }
+  if (message) body.appendChild(document.createTextNode(message));
+  snackbar.appendChild(body);
+  document.body.appendChild(snackbar);
 
-  const close = document.createElement("button");
-  close.className = "toast__close";
-  close.type = "button";
-  close.setAttribute("aria-label", "关闭");
-  close.appendChild(svg("close"));
-
-  el.appendChild(icon);
-  el.appendChild(body);
-  el.appendChild(close);
-
-  stack.appendChild(el);
-
-  let timer = null;
+  let dismissed = false;
   const dismiss = () => {
-    if (timer) clearTimeout(timer);
-    el.classList.add("toast--out");
-    el.addEventListener("animationend", () => el.remove(), { once: true });
+    if (dismissed) return;
+    dismissed = true;
+    snackbar.open = false;
   };
-  close.addEventListener("click", dismiss);
-  if (duration > 0) timer = setTimeout(dismiss, duration);
-
+  snackbar.addEventListener("closed", () => snackbar.remove(), { once: true });
+  requestAnimationFrame(() => {
+    if (!dismissed) snackbar.open = true;
+  });
   return dismiss;
 }
 
@@ -84,47 +134,44 @@ export function toastInfo(title, message) {
 
 // ---- Status Badge ----
 export function badge(status) {
-  const el = document.createElement("span");
   const label =
     status === "approved" ? "已通过"
     : status === "pending" ? "待审核"
     : status === "spam" ? "垃圾"
     : status || "未知";
-  el.className = `badge ${status ? `badge--${status}` : "badge--neutral"}`;
-  el.textContent = label;
-  return el;
+  const cls = ["approved", "pending", "spam"].includes(status) ? status : "neutral";
+  return el("span", {
+    class: `status-chip status-chip--${cls}`,
+    text: label,
+  });
 }
 
 // ---- Avatar ----
 export function avatar(item) {
-  // 优先级：qq_avatar > cravatar(mail) > 首字母圆形占位
-  const wrap = document.createElement("span");
-  wrap.className = "avatar";
+  const wrap = el("mdui-avatar", { class: "avatar" });
   const src =
     (item && item.qq_avatar) ||
     (item && item.mail ? `https://cravatar.cn/avatar/${md5Like(item.mail.trim().toLowerCase())}?d=404&s=64` : "");
+  const fallback = () => {
+    wrap.replaceChildren();
+    wrap.textContent = initial(item && item.nick);
+  };
   if (src) {
-    const img = document.createElement("img");
-    img.alt = "";
-    img.src = src;
-    img.referrerPolicy = "no-referrer";
-    img.decoding = "async";
-    img.addEventListener("error", () => {
-      wrap.classList.add("avatar--placeholder");
-      img.remove();
-      wrap.textContent = initial(item && item.nick);
+    const img = el("img", {
+      src,
+      alt: "",
+      referrerPolicy: "no-referrer",
+      decoding: "async",
+      onError: fallback,
     });
     wrap.appendChild(img);
   } else {
-    wrap.classList.add("avatar--placeholder");
-    wrap.textContent = initial(item && item.nick);
+    fallback();
   }
   return wrap;
 }
 
-// 前端无法引入 md5（零依赖约束），用简化 hash 作为兜底；
-// cravatar 的 d=404 回退 + img onerror 兜底首字母，确保总有头像。
-// 若 mail 失败回退到首字母也接受——这是后端未给 avatar 字段时的兜底。
+// 零依赖约束下的简易 hash，配合 cravatar d=404 + onerror 首字母兜底。
 function md5Like(str) {
   let h1 = 0xdeadbeef ^ 0;
   let h2 = 0x41c6ce57 ^ 0;
@@ -146,56 +193,38 @@ function initial(nick) {
 }
 
 // ---- 空状态 ----
-export function emptyState({ title = "暂无数据", hint = "", icon = "empty" } = {}) {
-  const wrap = document.createElement("div");
-  wrap.className = "empty";
-
-  const ico = document.createElement("span");
-  ico.className = "empty__icon";
-  ico.appendChild(svg(icon));
-
-  const t = document.createElement("div");
-  t.className = "empty__title";
-  t.textContent = title;
-
+export function emptyState({ title = "暂无数据", hint = "", icon: iconName = "empty" } = {}) {
+  const wrap = el("div", { class: "empty" });
+  const ico = el("div", { class: "empty__icon" }, icon(iconName));
+  const t = el("div", { class: "empty__title", text: title });
   wrap.appendChild(ico);
   wrap.appendChild(t);
-  if (hint) {
-    const h = document.createElement("div");
-    h.className = "empty__hint";
-    h.textContent = hint;
-    wrap.appendChild(h);
-  }
+  if (hint) wrap.appendChild(el("div", { class: "empty__hint", text: hint }));
   return wrap;
 }
 
 // ---- 加载占位 ----
 export function loadingScreen(text = "加载中…") {
-  const wrap = document.createElement("div");
-  wrap.className = "loading-screen";
-  const sp = document.createElement("span");
-  sp.className = "spinner spinner--lg";
-  const t = document.createElement("div");
-  t.textContent = text;
-  wrap.appendChild(sp);
-  wrap.appendChild(t);
-  return wrap;
+  return el(
+    "div",
+    { class: "loading-screen" },
+    el("mdui-circular-progress"),
+    el("div", { text })
+  );
 }
 
 export function tableSkeleton(rows = 6, cols = 5) {
-  const wrap = document.createElement("div");
-  wrap.className = "card__body card__body--flush";
-  const table = document.createElement("table");
-  table.className = "table";
-  const tbody = document.createElement("tbody");
+  const wrap = el("div", { class: "mdui-table skeleton-table page-card__body" });
+  const table = el("table");
+  const tbody = el("tbody");
   for (let i = 0; i < rows; i++) {
-    const tr = document.createElement("tr");
+    const tr = el("tr");
     for (let j = 0; j < cols; j++) {
-      const td = document.createElement("td");
-      const sk = document.createElement("div");
-      sk.className = "skeleton";
-      sk.style.height = "16px";
-      sk.style.width = `${30 + Math.floor(Math.random() * 60)}%`;
+      const td = el("td");
+      const sk = el("div", {
+        class: "skeleton",
+        style: { width: `${30 + Math.floor(Math.random() * 60)}%` },
+      });
       td.appendChild(sk);
       tr.appendChild(td);
     }
@@ -208,56 +237,42 @@ export function tableSkeleton(rows = 6, cols = 5) {
 
 // ---- 分页条 ----
 export function pagination({ page, page_size, total, onChange }) {
-  const wrap = document.createElement("div");
-  wrap.className = "pagination";
-
+  const wrap = el("div", { class: "pagination" });
   const totalPages = Math.max(1, Math.ceil(total / page_size));
   const cur = Math.min(Math.max(1, page), totalPages);
   const from = total === 0 ? 0 : (cur - 1) * page_size + 1;
   const to = Math.min(total, cur * page_size);
 
-  const info = document.createElement("span");
-  info.className = "pagination__info";
-  info.textContent = total === 0 ? "无记录" : `${from}–${to} / 共 ${total} 条`;
-  wrap.appendChild(info);
+  wrap.appendChild(el("span", { class: "pagination__info", text: total === 0 ? "无记录" : `${from}–${to} / 共 ${total} 条` }));
 
-  const mkBtn = (label, opts = {}) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "page-btn";
-    if (opts.ellipsis) b.classList.add("page-btn--ellipsis");
-    if (opts.active) b.classList.add("is-active");
-    b.innerHTML = label;
-    b.disabled = !!opts.disabled || opts.active;
-    if (!opts.disabled && !opts.active && !opts.ellipsis) {
-      b.addEventListener("click", () => onChange(opts.target));
-    }
-    return b;
-  };
+  const prev = el("mdui-button-icon", {
+    disabled: cur === 1,
+    attrs: { "aria-label": "上一页" },
+    onClick: () => onChange(cur - 1),
+  }, icon("chevron-left"));
+  wrap.appendChild(prev);
 
-  wrap.appendChild(
-    mkBtn(`<svg viewBox='0 0 24 24' width='14' height='14' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M15 6l-6 6 6 6'/></svg>`, {
-      disabled: cur === 1,
-      target: cur - 1,
-    })
-  );
-
-  const pages = pageList(cur, totalPages);
-  for (const p of pages) {
+  for (const p of pageList(cur, totalPages)) {
     if (p === "...") {
-      wrap.appendChild(mkBtn("…", { ellipsis: true }));
+      wrap.appendChild(el("mdui-button", { class: "page-btn page-btn--ellipsis", variant: "text", text: "…" }));
     } else {
-      wrap.appendChild(mkBtn(String(p), { active: p === cur, target: p }));
+      wrap.appendChild(
+        el("mdui-button", {
+          class: "page-btn",
+          variant: p === cur ? "filled" : "text",
+          text: String(p),
+          onClick: () => onChange(p),
+        })
+      );
     }
   }
 
-  wrap.appendChild(
-    mkBtn(`<svg viewBox='0 0 24 24' width='14' height='14' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>`, {
-      disabled: cur === totalPages,
-      target: cur + 1,
-    })
-  );
-
+  const next = el("mdui-button-icon", {
+    disabled: cur === totalPages,
+    attrs: { "aria-label": "下一页" },
+    onClick: () => onChange(cur + 1),
+  }, icon("chevron-right"));
+  wrap.appendChild(next);
   return wrap;
 }
 
@@ -280,176 +295,100 @@ function pageList(cur, total) {
 // ---- 确认对话框 ----
 export function confirmDialog({
   title = "确认操作",
-  bodyHtml = "",
   bodyText = "",
+  bodyNode = null,
   confirmText = "确定",
   cancelText = "取消",
   danger = false,
 } = {}) {
   return new Promise((resolve) => {
-    const portal = document.getElementById("dialog-portal");
-    if (!portal) {
-      resolve(window.confirm(title)); // 兜底
-      return;
-    }
-    portal.innerHTML = "";
-    portal.hidden = false;
+    const dialog = el("mdui-dialog", {
+      headline: title,
+      closeOnEsc: true,
+      closeOnOverlayClick: true,
+      stackedActions: true,
+    });
 
-    const backdrop = document.createElement("div");
-    backdrop.className = "dialog-portal__backdrop";
-
-    const dialog = document.createElement("div");
-    dialog.className = "dialog";
-    dialog.setAttribute("role", "dialog");
-    dialog.setAttribute("aria-modal", "true");
-    dialog.setAttribute("aria-labelledby", "dialog-title");
-
-    const header = document.createElement("div");
-    header.className = "dialog__header";
-    const t = document.createElement("div");
-    t.id = "dialog-title";
-    t.className = "dialog__title";
-    t.textContent = title;
-    header.appendChild(t);
-
-    const body = document.createElement("div");
-    body.className = "dialog__body";
-    if (bodyText) {
-      const p = document.createElement("div");
-      p.textContent = bodyText;
-      body.appendChild(p);
-    } else if (bodyHtml) {
-      // 仅允许静态结构（无用户数据），仍以 textContent 拼装子节点
-      body.appendChild(bodyHtml);
+    if (bodyNode) {
+      dialog.appendChild(bodyNode);
+    } else if (bodyText) {
+      dialog.appendChild(el("div", { text: bodyText }));
     }
 
-    const footer = document.createElement("div");
-    footer.className = "dialog__footer";
+    let result = null;
+    const cancel = el("mdui-button", {
+      slot: "action",
+      variant: "text",
+      text: cancelText,
+      onClick: () => {
+        result = null;
+        dialog.open = false;
+      },
+    });
+    const confirm = el("mdui-button", {
+      slot: "action",
+      variant: "filled",
+      class: danger ? "btn-danger" : "",
+      text: confirmText,
+      onClick: () => {
+        result = "confirm";
+        dialog.open = false;
+      },
+    });
+    dialog.append(cancel, confirm);
 
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "btn btn--ghost";
-    cancelBtn.textContent = cancelText;
-
-    const confirmBtn = document.createElement("button");
-    confirmBtn.type = "button";
-    confirmBtn.className = danger ? "btn btn--danger" : "btn btn--primary";
-    confirmBtn.textContent = confirmText;
-
-    footer.appendChild(cancelBtn);
-    footer.appendChild(confirmBtn);
-
-    dialog.appendChild(header);
-    dialog.appendChild(body);
-    dialog.appendChild(footer);
-
-    portal.appendChild(backdrop);
-    portal.appendChild(dialog);
-
-    let settled = false;
-    const close = (result) => {
-      if (settled) return;
-      settled = true;
-      portal.innerHTML = "";
-      portal.hidden = true;
-      document.removeEventListener("keydown", onKey);
+    dialog.addEventListener("closed", () => {
+      dialog.remove();
       resolve(result);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") close(null);
-    };
-    document.addEventListener("keydown", onKey);
+    }, { once: true });
 
-    cancelBtn.addEventListener("click", () => close(null));
-    backdrop.addEventListener("click", () => close(null));
-    confirmBtn.addEventListener("click", () => close("confirm"));
+    document.body.appendChild(dialog);
+    requestAnimationFrame(() => {
+      dialog.open = true;
+    });
   });
 }
 
-export function closeDialog() {
-  const portal = document.getElementById("dialog-portal");
-  if (portal) {
-    portal.innerHTML = "";
-    portal.hidden = true;
-  }
-}
-
-// ---- 详情抽屉 ----
-export function openDrawer({ title = "详情", renderBody }) {
-  const existing = document.querySelector(".detail");
-  if (existing) existing.remove();
-  const scrim = document.querySelector(".detail-scrim");
-  if (scrim) scrim.remove();
-
-  const backdrop = document.createElement("div");
-  backdrop.className = "dialog-portal__backdrop detail-scrim";
-  backdrop.style.position = "fixed";
-  backdrop.style.zIndex = "79";
-
-  const drawer = document.createElement("aside");
-  drawer.className = "detail";
-  drawer.setAttribute("role", "dialog");
-  drawer.setAttribute("aria-modal", "true");
-
-  const header = document.createElement("div");
-  header.className = "detail__header";
-  const t = document.createElement("div");
-  t.className = "detail__title";
-  t.textContent = title;
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "btn btn--ghost btn--sm";
-  closeBtn.textContent = "关闭";
-
-  header.appendChild(t);
-  header.appendChild(closeBtn);
-
-  const body = document.createElement("div");
-  body.className = "detail__body";
+// ---- 详情对话框 ----
+export function openDetailDialog({ title = "详情", renderBody }) {
+  const dialog = el("mdui-dialog", {
+    class: "detail",
+    headline: title,
+    closeOnEsc: true,
+    closeOnOverlayClick: true,
+  });
+  const body = el("div", { class: "detail__body" });
   body.appendChild(renderBody());
+  dialog.appendChild(body);
 
-  drawer.appendChild(header);
-  drawer.appendChild(body);
-  document.body.appendChild(backdrop);
-  document.body.appendChild(drawer);
-
-  const close = () => {
-    drawer.remove();
-    backdrop.remove();
-    document.removeEventListener("keydown", onKey);
+  dialog.addEventListener("closed", () => dialog.remove(), { once: true });
+  document.body.appendChild(dialog);
+  requestAnimationFrame(() => {
+    dialog.open = true;
+  });
+  return {
+    close: () => {
+      dialog.open = false;
+    },
+    body,
   };
-  const onKey = (e) => {
-    if (e.key === "Escape") close();
-  };
-  document.addEventListener("keydown", onKey);
-  closeBtn.addEventListener("click", close);
-  backdrop.addEventListener("click", close);
-
-  return { close, body };
 }
 
 // ---- 详情行 ----
 export function detailRow(label, valueNode, mono = false) {
-  const wrap = document.createElement("div");
-  wrap.className = "detail__row";
-  const lab = document.createElement("div");
-  lab.className = "detail__label";
-  lab.textContent = label;
-  const val = document.createElement("div");
-  val.className = `detail__value${mono ? " detail__value--mono" : ""}`;
-  if (typeof valueNode === "string") {
+  const wrap = el("div", { class: "detail__row" });
+  wrap.appendChild(el("div", { class: "detail__label", text: label }));
+  const val = el("div", { class: `detail__value${mono ? " detail__value--mono" : ""}` });
+  if (typeof valueNode === "string" || typeof valueNode === "number") {
     val.textContent = valueNode;
   } else if (valueNode instanceof Node) {
     val.appendChild(valueNode);
   }
-  wrap.appendChild(lab);
   wrap.appendChild(val);
   return wrap;
 }
 
 // ---- 时间格式化 ----
-// 服务端返回 UTC 朴素时间（NaiveDateTime，无时区后缀），必须按 UTC 解析，
-// 否则 new Date() 会当作本地时间，导致东八区下偏差 8 小时
 function parseServerTime(input) {
   if (typeof input === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(input)) {
     return new Date(input + "Z");
@@ -481,5 +420,3 @@ export function formatRelative(input) {
   if (sec < 2592000) return `${Math.floor(sec / 86400)} 天前`;
   return formatTime(input);
 }
-
-export { svg };

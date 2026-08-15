@@ -1,5 +1,5 @@
 import { fetchStats } from "../api.js";
-import { loadingScreen, emptyState, toastErr, svg } from "../components.js";
+import { loadingScreen, emptyState, toastErr, icon, el } from "../components.js";
 import { forceRefreshBadge } from "../app.js";
 
 export async function render(container) {
@@ -10,11 +10,11 @@ export async function render(container) {
 
   try {
     const stats = await fetchStats();
-    container.removeChild(loading);
+    loading.remove();
     container.appendChild(statsGrid(stats));
     container.appendChild(urlRankCard(stats));
   } catch (err) {
-    container.removeChild(loading);
+    loading.remove();
     container.appendChild(
       emptyState({
         title: "统计数据加载失败",
@@ -27,40 +27,29 @@ export async function render(container) {
 }
 
 function pageHead() {
-  const head = document.createElement("div");
-  head.className = "page-head";
-  const titles = document.createElement("div");
-  titles.className = "page-head__titles";
-  const t = document.createElement("h1");
-  t.className = "page-title";
-  t.textContent = "仪表盘";
-  const s = document.createElement("div");
-  s.className = "page-subtitle";
-  s.textContent = "评论系统总览与各页面热度";
-  titles.appendChild(t);
-  titles.appendChild(s);
+  const head = el("div", { class: "page-head" });
+  const titles = el("div", { class: "page-head__titles" });
+  titles.appendChild(el("h1", { class: "page-title", text: "仪表盘" }));
+  titles.appendChild(el("div", { class: "page-subtitle", text: "评论系统总览与各页面热度" }));
   head.appendChild(titles);
 
-  const refresh = document.createElement("button");
-  refresh.type = "button";
-  refresh.className = "btn btn--ghost btn--sm";
-  refresh.appendChild(svg("refresh"));
-  const refreshLabel = document.createTextNode("刷新");
-  refresh.appendChild(refreshLabel);
+  const refresh = el("mdui-button", { variant: "outlined" });
+  const iconNode = icon("refresh");
+  iconNode.slot = "icon";
+  refresh.appendChild(iconNode);
+  refresh.appendChild(document.createTextNode("刷新"));
   refresh.addEventListener("click", async () => {
-    refresh.setAttribute("aria-busy", "true");
-    refresh.innerHTML = '<span class="spinner"></span>';
+    refresh.loading = true;
+    refresh.disabled = true;
     await forceRefreshBadge();
     location.reload();
   });
   head.appendChild(refresh);
-
   return head;
 }
 
 function statsGrid(stats) {
-  const grid = document.createElement("div");
-  grid.className = "stats-grid";
+  const grid = el("div", { class: "stats-grid" });
 
   const cards = [
     { key: "total", label: "评论总数", value: stats.total ?? 0, cls: "total", filter: "" },
@@ -71,23 +60,12 @@ function statsGrid(stats) {
   ];
 
   for (const c of cards) {
-    const card = document.createElement("div");
-    card.className = `stat-card stat-card--${c.cls}`;
-
-    const accent = document.createElement("div");
-    accent.className = "stat-card__accent";
-
-    const lab = document.createElement("div");
-    lab.className = "stat-card__label";
-    lab.textContent = c.label;
-
-    const val = document.createElement("span");
-    val.className = "stat-card__value";
-    val.textContent = formatNum(c.value);
-
-    card.appendChild(accent);
-    card.appendChild(lab);
-    card.appendChild(val);
+    const card = el("mdui-card", {
+      class: `stat-card stat-card--${c.cls}${c.filter ? " stat-card--clickable" : ""}`,
+    });
+    card.appendChild(el("div", { class: "stat-card__accent" }));
+    card.appendChild(el("div", { class: "stat-card__label", text: c.label }));
+    card.appendChild(el("span", { class: "stat-card__value", text: formatNum(c.value) }));
 
     if (c.filter) {
       card.style.cursor = "pointer";
@@ -96,64 +74,42 @@ function statsGrid(stats) {
         location.hash = `#/comments${c.filter}`;
       });
     }
-
     grid.appendChild(card);
   }
-
   return grid;
 }
 
 function urlRankCard(stats) {
-  const card = document.createElement("div");
-  card.className = "card";
-
-  const header = document.createElement("div");
-  header.className = "card__header";
-  const title = document.createElement("div");
-  title.className = "card__title";
-  title.textContent = "URL 评论数排行";
-  const sub = document.createElement("div");
-  sub.className = "card__subtitle";
-  sub.textContent = "按文章评论数倒序，取前 100";
-  header.appendChild(title);
-  header.appendChild(sub);
+  const card = el("mdui-card", { class: "page-card" });
+  const header = el("div", { class: "page-card__header" });
+  const titleBox = el("div");
+  titleBox.appendChild(el("div", { class: "page-card__title", text: "URL 评论数排行" }));
+  titleBox.appendChild(el("div", { class: "page-card__subtitle", text: "按文章评论数倒序，取前 100" }));
+  header.appendChild(titleBox);
   card.appendChild(header);
 
-  const body = document.createElement("div");
-  body.className = "card__body card__body--flush";
-
-  const urls = (stats.urls || []);
+  const body = el("div", { class: "page-card__body" });
+  const urls = stats.urls || [];
   if (urls.length === 0) {
     body.appendChild(emptyState({ title: "暂无数据", hint: "尚无评论或未生成统计" }));
   } else {
     urls.slice(0, 100).forEach((entry, idx) => {
-      const row = document.createElement("div");
-      row.className = "rank-row";
-
-      const num = document.createElement("span");
-      num.className = "rank-row__num";
-      num.textContent = `#${idx + 1}`;
-
-      const url = document.createElement("span");
-      url.className = "rank-row__url";
-      url.textContent = entry.url || "(空 URL)";
-      url.title = entry.url || "";
+      const row = el("div", { class: "rank-row" });
+      row.appendChild(el("span", { class: "rank-row__num", text: `#${idx + 1}` }));
+      const url = el("span", {
+        class: "rank-row__url",
+        text: entry.url || "(空 URL)",
+        title: entry.url || "",
+      });
       url.addEventListener("click", () => {
         const target = entry.url ? `#/comments?url=${encodeURIComponent(entry.url)}` : "#/comments";
         location.hash = target;
       });
-
-      const count = document.createElement("span");
-      count.className = "rank-row__count";
-      count.textContent = `${entry.count} 条`;
-
-      row.appendChild(num);
       row.appendChild(url);
-      row.appendChild(count);
+      row.appendChild(el("span", { class: "rank-row__count", text: `${entry.count} 条` }));
       body.appendChild(row);
     });
   }
-
   card.appendChild(body);
   return card;
 }

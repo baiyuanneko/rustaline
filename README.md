@@ -2,7 +2,7 @@
 
 Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 PostgreSQL / MySQL）+ JWT 认证（Redis 黑名单）+ utoipa OpenAPI。
 
-内置 **rustaline 评论系统**（Valine 自托管替代品）：匿名评论、楼中楼回复、LeanCloud 数据导入、原生 JS 管理面板与评论 SDK。
+内置 **rustaline 评论系统**（Valine 自托管替代品）：匿名评论、楼中楼回复、LeanCloud 数据导入、Material 3 风格管理面板与零依赖评论 SDK。
 
 ## 技术栈
 
@@ -11,7 +11,8 @@ Rust Web 项目脚手架：axum 0.8 + sea-orm 2.0（默认 SQLite，可切换 Po
 - 认证：jsonwebtoken 签发 access token（jti = uuid），logout 后 jti 写入 Redis 黑名单
 - 配置：`config` crate 分层加载（`config/default.toml` < `config/local.toml` < `APP_*` 环境变量），dotenvy 加载 `.env`
 - 文档：utoipa 5 + utoipa-swagger-ui，Swagger UI 在 `/swagger-ui/`
-- 静态文件：`ServeDir` 兜底挂载 `static/` 于根路径（显式路由 `/api/**`、`/health`、`/swagger-ui` 优先），含评论 SDK、演示页与管理面板（均为零依赖原生 JS）
+- 静态文件：`ServeDir` 兜底挂载 `static/` 于根路径（显式路由 `/api/**`、`/health`、`/swagger-ui` 优先），含评论 SDK、演示页与管理面板
+- 前端视觉：官网与管理面板使用本地 vendor 的 [mdui](https://www.mdui.org) 2.1.5（Material 3 / Material You Web Components）；评论 SDK 保持零依赖单文件，仅按 Material 3 风格实现
 - 评论反垃圾：单 IP 内存滑动窗口限流 + 蜜罐字段 + 可选先审后发（moderation）
 
 ## 快速开始
@@ -85,7 +86,7 @@ SDK 零依赖单文件：楼中楼渲染、回复表单、头像推导（QQ 头�
 
 ### 管理面板
 
-`/admin/` 零依赖原生 JS 单页应用：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看。
+`/admin/` 原生 ES Modules 单页应用，使用本地 vendor 的 mdui 2.1.5 Web Components：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看。
 
 ### 导入 Valine 历史数据
 

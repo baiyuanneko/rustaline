@@ -1,4 +1,4 @@
-// 应用入口：hash 路由、auth guard、侧边栏与顶栏联动、待审角标。
+// 应用入口：hash 路由、auth guard、mdui 外壳联动、待审角标。
 
 import {
   isAuthenticated,
@@ -25,8 +25,10 @@ const ROUTES = {
 
 const DEFAULT_ROUTE = "#/dashboard";
 const LOGIN_ROUTE = "#/login";
+const DESKTOP_QUERY = "(min-width: 840px)";
 
 const appEl = () => document.getElementById("app");
+const drawerEl = () => document.getElementById("sidebar");
 
 function currentHash() {
   const h = window.location.hash || "";
@@ -61,13 +63,14 @@ async function renderRoute() {
   updateShell({ username: getUsername() });
   await mountView(route.view);
   setActiveNav(route.nav);
+  closeDrawerOnMobile();
   refreshPendingBadge();
 }
 
 async function mountView(viewModule) {
   const app = appEl();
   if (!app) return;
-  app.innerHTML = "";
+  app.replaceChildren();
   if (viewModule.cleanup) {
     try {
       viewModule.cleanup();
@@ -76,10 +79,10 @@ async function mountView(viewModule) {
   try {
     await viewModule.render(app);
   } catch (err) {
-    app.innerHTML = "";
+    app.replaceChildren();
     const errBox = document.createElement("div");
-    errBox.className = "card card__body";
-    errBox.style.color = "var(--danger)";
+    errBox.className = "page-card mdui-card page-card__body";
+    errBox.style.color = "rgb(var(--mdui-color-error))";
     errBox.textContent = `页面加载失败：${err && err.message ? err.message : err}`;
     app.appendChild(errBox);
   }
@@ -87,8 +90,17 @@ async function mountView(viewModule) {
 
 function setActiveNav(navKey) {
   document.querySelectorAll(".nav__item").forEach((el) => {
-    el.classList.toggle("is-active", el.dataset.route === navKey);
+    const active = el.dataset.route === navKey;
+    el.classList.toggle("is-active", active);
+    el.active = active;
   });
+}
+
+function closeDrawerOnMobile() {
+  const drawer = drawerEl();
+  if (drawer && !window.matchMedia(DESKTOP_QUERY).matches) {
+    drawer.open = false;
+  }
 }
 
 function updateShell({ username }) {
@@ -113,8 +125,8 @@ async function refreshPendingBadge() {
   try {
     const stats = await fetchStats();
     setPendingBadge(stats.pending || 0);
-  } catch (err) {
-    // 401 已由全局拦截器处理；其余错误（如服务未就绪）静默，不打扰用户
+  } catch (_) {
+    // 401 由全局拦截器处理；其他错误静默，避免打扰用户
   }
 }
 
@@ -136,35 +148,30 @@ export function forceRefreshBadge() {
 
 function initSidebar() {
   const toggle = document.getElementById("menu-toggle");
-  const sidebar = document.getElementById("sidebar");
-  const scrim = document.getElementById("sidebar-scrim");
-  if (!toggle || !sidebar || !scrim) return;
+  const drawer = drawerEl();
+  if (!toggle || !drawer) return;
 
-  const open = () => {
-    sidebar.classList.add("is-open");
-    scrim.hidden = false;
-    scrim.classList.add("is-open");
+  const desktop = window.matchMedia(DESKTOP_QUERY);
+  const syncDrawer = () => {
+    drawer.open = desktop.matches;
   };
-  const close = () => {
-    sidebar.classList.remove("is-open");
-    scrim.classList.remove("is-open");
-    scrim.hidden = true;
-  };
+  syncDrawer();
+  desktop.addEventListener("change", syncDrawer);
+
   toggle.addEventListener("click", () => {
-    if (sidebar.classList.contains("is-open")) close();
-    else open();
+    drawer.open = !drawer.open;
   });
-  scrim.addEventListener("click", close);
+
   document.querySelectorAll(".nav__item").forEach((a) => {
-    a.addEventListener("click", close);
+    a.addEventListener("click", closeDrawerOnMobile);
   });
 }
 
 async function handleLogout() {
   try {
     await apiLogout();
-  } catch (err) {
-    // 即使后端登出失败（如服务不可达），仍清本地
+  } catch (_) {
+    // 即使后端登出失败，仍清本地
   }
   clearSession();
   toastErr("已登出", "登录状态已清除");
@@ -190,9 +197,6 @@ function init() {
   initTopbar();
 
   window.addEventListener("hashchange", renderRoute);
-  window.addEventListener("DOMContentLoaded", () => {
-    if (!location.hash) location.hash = DEFAULT_ROUTE;
-  });
 
   badgeTimer = setInterval(refreshPendingBadge, 60_000);
 

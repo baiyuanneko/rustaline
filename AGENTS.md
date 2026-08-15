@@ -9,10 +9,12 @@ bynrust26/
 ├── Cargo.toml            # workspace 根，[workspace.dependencies] 统一版本
 ├── config/default.toml   # 默认配置（local.toml 为本机覆盖，已 gitignore）
 ├── static/               # 静态文件目录，ServeDir 兜底挂载于根路径（目录请求返回 index.html）
-│   ├── index.html        # rustaline 评论系统演示主页（引入 sdk/rustaline.js）
+│   ├── index.html        # rustaline 评论系统演示主页（mdui 风格，引入 sdk/rustaline.js）
 │   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示）
-│   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，全局 Rustaline 类，支持多实例
-│   └── admin/            # 管理面板：零依赖原生 ES Modules SPA（hash 路由）
+│   ├── theme.js          # mdui 主题初始化（mdui-theme-auto + setColorScheme）
+│   ├── vendor/mdui/      # 本地 vendor 的 mdui 2.1.5（mdui.global.js / mdui.css / LICENSE / SHA256SUMS）
+│   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，Material 3 视觉，全局 Rustaline 类，支持多实例
+│   └── admin/            # 管理面板：原生 ES Modules SPA（hash 路由）+ mdui Web Components
 │       └── js/views/     # login / dashboard / comments / import / settings
 ├── migration/            # sea-orm-migration 独立 crate（CLI + Migrator）
 │   └── src/m*_*.rs       # 迁移文件，按时间戳命名并注册进 lib.rs 的 Migrator
@@ -38,6 +40,19 @@ bynrust26/
 
 Valine 自托管替代品。comments 表完整兼容 Valine 字段（id 即 objectId、QQAvatar→qq_avatar、pid/rid 楼中楼、insertedAt→inserted_at），新增 `status`（approved/pending/spam）支撑审核。公共接口匿名（`/api/v1/comments`），管理接口走 AuthUser（`/api/v1/admin/comments*`）；Valine 导入按 objectId 幂等，单批 ≤1000 条。详见 README「rustaline 评论系统」一节。
 
+
+## mdui vendor 管理
+
+- 版本固定：`static/vendor/mdui/VERSION` 当前为 `2.1.5`；不得直接修改 vendor 文件。
+- 文件：`mdui.global.js`、`mdui.css`、`LICENSE`、`VERSION`、`SHA256SUMS`。
+- 升级步骤：
+  1. `npm pack mdui@<版本>` 并解包；
+  2. 覆盖 `mdui.global.js`、`mdui.css`、`LICENSE`；
+  3. 更新 `VERSION`；
+  4. 在 `static/vendor/mdui/` 下执行 `sha256sum mdui.global.js mdui.css > SHA256SUMS`；
+  5. 全量跑一遍主页 / 脚手架 / 管理面板的 Playwright 回归；
+  6. 更新 README 与本文件中的版本号。
+- 校验：`cd static/vendor/mdui && sha256sum -c SHA256SUMS`。
 
 ## 构建 / 测试命令
 
@@ -65,6 +80,8 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - 时间戳统一 `chrono::NaiveDateTime`（实体 `DateTime`，migration 用 `date_time(...)`），由 service 层显式赋值。序列化为 UTC 朴素时间（无时区后缀）；**前端（SDK / 管理面板）解析时必须按 UTC 处理**（现有 `parseServerTime` 助手），否则非 UTC 时区显示偏差。
 - 表名用复数（`users` / `comments`），避免与数据库保留字冲突。
 - 密码只存 argon2 哈希；任何响应不得包含 `password_hash` 字段。
-- `static/` 下前端（SDK 与管理面板）保持**零依赖零构建**：原生 JS（SDK 为 IIFE 单文件，面板为 ES Modules），不引框架 / CDN / npm；所有用户内容一律 `textContent` 渲染防 XSS，禁止 innerHTML 拼接用户数据。
+- `static/sdk/rustaline.js` 保持**零依赖单文件**：原生 JS IIFE，不引框架 / CDN / npm / 字体；仅使用内置 Material 3 CSS 令牌。
+- 官网与管理面板使用**本地 vendor 的 mdui**（见下方「mdui vendor 管理」），不引 CDN、不引入 npm 运行时；面板仍为原生 ES Modules，无构建步骤。
+- 所有用户内容一律 `textContent` / `createTextNode` 渲染防 XSS，禁止 innerHTML 拼接用户数据；静态 SVG 常量可例外，但必须固定写死在本文件内。
 - 依赖版本统一改根 `Cargo.toml` 的 `[workspace.dependencies]`，成员 crate 用 `xxx.workspace = true` 引用。
 - 完成改动后必须跑通：`cargo build`、`cargo test`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`。

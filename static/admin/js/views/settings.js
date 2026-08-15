@@ -1,5 +1,5 @@
 import { fetchConfig } from "../api.js";
-import { loadingScreen, emptyState, toastErr } from "../components.js";
+import { loadingScreen, emptyState, toastErr, el } from "../components.js";
 
 export async function render(container) {
   container.appendChild(pageHead());
@@ -9,10 +9,10 @@ export async function render(container) {
 
   try {
     const cfg = await fetchConfig();
-    container.removeChild(loading);
+    loading.remove();
     container.appendChild(renderConfig(cfg));
   } catch (err) {
-    container.removeChild(loading);
+    loading.remove();
     container.appendChild(
       emptyState({
         title: "配置加载失败",
@@ -25,44 +25,26 @@ export async function render(container) {
 }
 
 function pageHead() {
-  const head = document.createElement("div");
-  head.className = "page-head";
-  const titles = document.createElement("div");
-  titles.className = "page-head__titles";
-  const t = document.createElement("h1");
-  t.className = "page-title";
-  t.textContent = "设置";
-  const s = document.createElement("div");
-  s.className = "page-subtitle";
-  s.textContent = "评论模块当前生效配置（只读）";
-  titles.appendChild(t);
-  titles.appendChild(s);
+  const head = el("div", { class: "page-head" });
+  const titles = el("div", { class: "page-head__titles" });
+  titles.appendChild(el("h1", { class: "page-title", text: "设置" }));
+  titles.appendChild(el("div", { class: "page-subtitle", text: "评论模块当前生效配置（只读）" }));
   head.appendChild(titles);
   return head;
 }
 
 function renderConfig(cfg) {
-  const wrap = document.createElement("div");
-
+  const wrap = el("div");
   const comment = (cfg && cfg.comment) || {};
   const version = cfg && cfg.version ? String(cfg.version) : "—";
 
-  const card = document.createElement("div");
-  card.className = "card";
-
-  const header = document.createElement("div");
-  header.className = "card__header";
-  const title = document.createElement("div");
-  title.className = "card__title";
-  title.textContent = "comment 配置";
-  header.appendChild(title);
+  const card = el("mdui-card", { class: "page-card" });
+  const header = el("div", { class: "page-card__header" });
+  header.appendChild(el("div", { class: "page-card__title", text: "comment 配置" }));
   card.appendChild(header);
 
-  const body = document.createElement("div");
-  body.className = "card__body";
-
-  const dl = document.createElement("div");
-  dl.className = "kv-list";
+  const body = el("div", { class: "page-card__body" });
+  const dl = el("div", { class: "kv-list" });
 
   const rows = [
     ["moderation", comment.moderation, "新评论是否需要审核（true 时为 pending，否则直接 approved）"],
@@ -73,40 +55,20 @@ function renderConfig(cfg) {
   ];
 
   for (const [k, v, hint] of rows) {
-    const key = document.createElement("div");
-    key.className = "kv-list__key";
-    key.textContent = k;
+    const key = el("div", { class: "kv-list__key", text: k });
     if (hint) key.title = hint;
-
-    const val = document.createElement("div");
-    val.className = "kv-list__val";
-    const code = document.createElement("code");
-    code.textContent = formatVal(v);
-    val.appendChild(code);
-
+    const val = el("div", { class: "kv-list__val" });
+    val.appendChild(el("code", { text: formatVal(v) }));
     dl.appendChild(key);
     dl.appendChild(val);
   }
-
   body.appendChild(dl);
 
-  const note = document.createElement("div");
-  note.className = "mt-6";
-  note.style.padding = "12px 16px";
-  note.style.background = "var(--surface-2)";
-  note.style.border = "1px solid var(--border)";
-  note.style.borderRadius = "var(--radius)";
-  note.style.color = "var(--text-muted)";
-  note.style.fontSize = "13px";
-  note.style.lineHeight = "1.7";
+  const note = el("div", { class: "page-subtitle", style: { marginTop: "20px", lineHeight: "1.8" } });
   note.appendChild(document.createTextNode("如需修改配置，请编辑 "));
-  const code1 = document.createElement("code");
-  code1.textContent = "config/local.toml";
-  note.appendChild(code1);
+  note.appendChild(el("code", { text: "config/local.toml" }));
   note.appendChild(document.createTextNode(" 或设置环境变量（如 "));
-  const code2 = document.createElement("code");
-  code2.textContent = "APP_COMMENT__MODERATION=true";
-  note.appendChild(code2);
+  note.appendChild(el("code", { text: "APP_COMMENT__MODERATION=true" }));
   note.appendChild(document.createTextNode("），重启服务后生效。"));
   body.appendChild(note);
 
