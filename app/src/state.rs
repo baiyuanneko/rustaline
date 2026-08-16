@@ -3,6 +3,7 @@ use std::sync::Arc;
 use redis::aio::ConnectionManager;
 use sea_orm::DatabaseConnection;
 
+use crate::auth::admin::AdminCredentials;
 use crate::config::AppConfig;
 use crate::middleware::rate_limit::RateLimiter;
 
@@ -13,4 +14,6 @@ pub struct AppState {
     pub redis: Option<ConnectionManager>,
     pub config: Arc<AppConfig>,
     pub comment_rate_limiter: RateLimiter,
+    /// 唯一管理员凭据（来自 initial_admin 配置，启动时构建）
+    pub admin: AdminCredentials,
 }

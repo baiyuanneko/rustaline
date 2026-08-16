@@ -1,36 +1,13 @@
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::{Json, debug_handler};
 use chrono::Utc;
 
 use crate::auth::{blacklist, jwt, middleware::AuthUser};
-use crate::dto::{LoginRequest, LoginResponse, MessageResponse, RegisterRequest, UserResponse};
+use crate::dto::{LoginRequest, LoginResponse, MessageResponse};
 use crate::error::AppError;
-use crate::services::user_service;
 use crate::state::AppState;
 
-/// 注册（创建用户，与 users CRUD 共用 user_service::create_user）
-#[utoipa::path(
-    post,
-    path = "/api/v1/auth/register",
-    tag = "auth",
-    request_body = RegisterRequest,
-    responses(
-        (status = 201, description = "User registered", body = UserResponse),
-        (status = 400, description = "Invalid input", body = crate::dto::ErrorResponse),
-        (status = 409, description = "Username already taken", body = crate::dto::ErrorResponse),
-    )
-)]
-#[debug_handler]
-pub async fn register(
-    State(state): State<AppState>,
-    Json(payload): Json<RegisterRequest>,
-) -> Result<(StatusCode, Json<UserResponse>), AppError> {
-    let user = user_service::create_user(&state.db, &payload.username, &payload.password).await?;
-    Ok((StatusCode::CREATED, Json(user.into())))
-}
-
-/// 登录，签发 JWT access token
+/// 登录，签发 JWT access token。唯一管理员账号来自 initial_admin 配置（环境变量）
 #[utoipa::path(
     post,
     path = "/api/v1/auth/login",
@@ -46,12 +23,17 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
-    let user = user_service::verify_credentials(&state.db, &payload.username, &payload.password)
-        .await?
-        .ok_or_else(|| AppError::Unauthorized("invalid username or password".into()))?;
+    if !state.admin.verify(&payload.username, &payload.password)? {
+        return Err(AppError::Unauthorized(
+            "invalid username or password".into(),
+        ));
+    }
 
-    let (token, _) =
-        jwt::encode_token(user.id, &state.config.jwt.secret, state.config.jwt.ttl_secs)?;
+    let (token, _) = jwt::encode_token(
+        &state.admin.username,
+        &state.config.jwt.secret,
+        state.config.jwt.ttl_secs,
+    )?;
 
     Ok(Json(LoginResponse {
         access_token: token,

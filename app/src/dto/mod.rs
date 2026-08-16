@@ -1,9 +1,8 @@
 mod auth;
 mod comment;
 mod common;
-mod user;
 
-pub use auth::{LoginRequest, LoginResponse, RegisterRequest};
+pub use auth::{LoginRequest, LoginResponse};
 pub use comment::{
     AdminCommentListResponse, AdminCommentQuery, AdminCommentResponse, AdminConfigResponse,
     CommentConfigResponse, CommentCreateRequest, CommentListQuery, CommentListResponse,
@@ -11,4 +10,3 @@ pub use comment::{
     ValineImportReport, ValineImportRequest,
 };
 pub use common::{ErrorResponse, HealthResponse, MessageResponse};
-pub use user::{CreateUserRequest, UpdateUserRequest, UserResponse};

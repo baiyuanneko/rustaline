@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use app::auth::admin::AdminCredentials;
 use app::config::{
     AppConfig, CommentConfig, DatabaseConfig, InitialAdminConfig, JwtConfig, LogConfig,
     RedisConfig, ServerConfig, StaticConfig,
@@ -44,7 +45,10 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
             dir: concat!(env!("CARGO_MANIFEST_DIR"), "/../static").into(),
         },
         comment: CommentConfig::default(),
-        initial_admin: InitialAdminConfig::default(),
+        initial_admin: InitialAdminConfig {
+            username: Some("admin".into()),
+            password: Some("adminpass123".into()),
+        },
     }
 }
 
@@ -75,6 +79,7 @@ async fn build_app(redis_url: Option<String>, blacklist_enabled: bool) -> Router
         redis,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
+        admin: AdminCredentials::new("admin", "adminpass123").expect("admin credentials"),
     })
 }
 
@@ -92,6 +97,7 @@ async fn build_app_with_comment(comment: CommentConfig) -> Router {
         redis: None,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
+        admin: AdminCredentials::new("admin", "adminpass123").expect("admin credentials"),
     })
 }
 
@@ -137,25 +143,14 @@ async fn call(app: &Router, req: Request<Body>) -> (StatusCode, Value) {
     (status, body)
 }
 
-async fn register_and_login(app: &Router, username: &str, password: &str) -> String {
-    let (status, _) = call(
-        app,
-        json_request(
-            "POST",
-            "/api/v1/auth/register",
-            Some(json!({ "username": username, "password": password })),
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "register failed");
-
+/// 用唯一管理员账号（admin / adminpass123）登录，返回 access token
+async fn login(app: &Router) -> String {
     let (status, body) = call(
         app,
         json_request(
             "POST",
             "/api/v1/auth/login",
-            Some(json!({ "username": username, "password": password })),
+            Some(json!({ "username": "admin", "password": "adminpass123" })),
             None,
         ),
     )
@@ -174,130 +169,61 @@ async fn health_returns_200() {
 }
 
 #[tokio::test]
-async fn auth_and_crud_flow() {
+async fn auth_login_flow() {
     let app = build_app(None, false).await;
 
     // 未带 token 访问受保护接口 -> 401
-    let (status, _) = call(&app, json_request("GET", "/api/v1/users", None, None)).await;
+    let (status, _) = call(
+        &app,
+        json_request("GET", "/api/v1/admin/comments", None, None),
+    )
+    .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     // 错误 token -> 401
     let (status, _) = call(
         &app,
-        json_request("GET", "/api/v1/users", None, Some("not-a-token")),
+        json_request("GET", "/api/v1/admin/comments", None, Some("not-a-token")),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    // 重复注册 -> 409；弱密码 -> 400
-    let token = register_and_login(&app, "alice", "secret123").await;
-    let (status, _) = call(
-        &app,
-        json_request(
-            "POST",
-            "/api/v1/auth/register",
-            Some(json!({ "username": "alice", "password": "secret123" })),
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    let (status, _) = call(
-        &app,
-        json_request(
-            "POST",
-            "/api/v1/auth/register",
-            Some(json!({ "username": "bob", "password": "123" })),
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
-    // 错误密码登录 -> 401
-    let (status, _) = call(
+    // 错误密码 -> 401
+    let (status, body) = call(
         &app,
         json_request(
             "POST",
             "/api/v1/auth/login",
-            Some(json!({ "username": "alice", "password": "wrong-password" })),
+            Some(json!({ "username": "admin", "password": "wrong-password" })),
             None,
         ),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], 401);
 
-    // 带 token：CRUD 全流程
-    let (status, body) = call(
-        &app,
-        json_request("GET", "/api/v1/users", None, Some(&token)),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body.as_array().unwrap().len(), 1);
-
+    // 错误用户名 -> 401
     let (status, body) = call(
         &app,
         json_request(
             "POST",
-            "/api/v1/users",
-            Some(json!({ "username": "carol", "password": "secret123" })),
-            Some(&token),
+            "/api/v1/auth/login",
+            Some(json!({ "username": "nobody", "password": "adminpass123" })),
+            None,
         ),
     )
     .await;
-    assert_eq!(status, StatusCode::CREATED);
-    let carol_id = body["id"].as_i64().unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], 401);
 
-    let (status, body) = call(
+    // 正确凭据登录 -> 200，token 可访问管理接口
+    let token = login(&app).await;
+    let (status, _) = call(
         &app,
-        json_request(
-            "GET",
-            &format!("/api/v1/users/{carol_id}"),
-            None,
-            Some(&token),
-        ),
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["username"], "carol");
-
-    let (status, body) = call(
-        &app,
-        json_request(
-            "PUT",
-            &format!("/api/v1/users/{carol_id}"),
-            Some(json!({ "username": "carol2" })),
-            Some(&token),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["username"], "carol2");
-
-    let (status, _) = call(
-        &app,
-        json_request(
-            "DELETE",
-            &format!("/api/v1/users/{carol_id}"),
-            None,
-            Some(&token),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    let (status, _) = call(
-        &app,
-        json_request(
-            "GET",
-            &format!("/api/v1/users/{carol_id}"),
-            None,
-            Some(&token),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 /// 拉起临时 redis-server；二进制不存在时返回 None（测试将跳过）
@@ -359,12 +285,12 @@ async fn logout_revokes_token_via_blacklist() {
     };
 
     let app = build_app(Some(redis.url.clone()), true).await;
-    let token = register_and_login(&app, "dave", "secret123").await;
+    let token = login(&app).await;
 
     // logout 前 token 可用
     let (status, _) = call(
         &app,
-        json_request("GET", "/api/v1/users", None, Some(&token)),
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -380,7 +306,7 @@ async fn logout_revokes_token_via_blacklist() {
     // 同一 token 再次访问 -> 401（已进黑名单）
     let (status, body) = call(
         &app,
-        json_request("GET", "/api/v1/users", None, Some(&token)),
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -397,7 +323,7 @@ async fn openapi_json_is_served() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["info"]["title"], "bynrust26 API");
-    assert!(body["paths"]["/api/v1/users"].is_object());
+    assert!(body["paths"]["/api/v1/auth/login"].is_object());
 }
 
 #[tokio::test]
@@ -610,7 +536,7 @@ async fn comment_moderation_flow() {
     .await;
     assert_eq!(body["count"], 0);
 
-    let token = register_and_login(&app, "mod_admin", "secret123").await;
+    let token = login(&app).await;
     let (_, body) = call(
         &app,
         json_request(
@@ -657,7 +583,7 @@ async fn admin_comment_management() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let token = register_and_login(&app, "mgr", "secret123").await;
+    let token = login(&app).await;
 
     call(
         &app,
@@ -740,7 +666,7 @@ async fn admin_comment_management() {
 #[tokio::test]
 async fn admin_delete_reparents_children() {
     let app = build_app(None, false).await;
-    let token = register_and_login(&app, "delmgr", "secret123").await;
+    let token = login(&app).await;
 
     let (_, body) = call(&app, submit_comment_req("/del", "root")).await;
     let root_id = body["id"].as_str().unwrap().to_owned();
@@ -819,7 +745,7 @@ async fn admin_stats_and_config() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let token = register_and_login(&app, "statmgr", "secret123").await;
+    let token = login(&app).await;
 
     call(&app, submit_comment_req("/s1", "c1")).await;
     call(&app, submit_comment_req("/s1", "c2")).await;
@@ -856,7 +782,7 @@ async fn admin_stats_and_config() {
 #[tokio::test]
 async fn import_valine_data() {
     let app = build_app(None, false).await;
-    let token = register_and_login(&app, "impmgr", "secret123").await;
+    let token = login(&app).await;
 
     let wrapped = json!({
         "results": [{
@@ -987,35 +913,21 @@ async fn comment_honeypot() {
 }
 
 #[tokio::test]
-async fn initial_admin_seed_is_idempotent() {
-    let mut opt = ConnectOptions::new("sqlite::memory:");
-    opt.max_connections(1);
-    let db = Database::connect(opt).await.expect("connect sqlite memory");
-    Migrator::up(&db, None).await.expect("run migrations");
-
-    let created = app::services::user_service::ensure_initial_admin(&db, "root", "rootpass123")
-        .await
-        .expect("seed admin");
-    assert!(created, "first seed must create the account");
-
-    // 已存在则跳过：即使传入不同密码也不覆盖原账号
-    let created = app::services::user_service::ensure_initial_admin(&db, "root", "otherpass999")
-        .await
-        .expect("seed admin again");
-    assert!(!created, "second seed must skip existing account");
-
+async fn admin_credentials_verify() {
+    let creds = AdminCredentials::new("root", "rootpass123").expect("build credentials");
+    assert_eq!(creds.username, "root");
     assert!(
-        app::services::user_service::verify_credentials(&db, "root", "rootpass123")
-            .await
-            .expect("verify original password")
-            .is_some(),
-        "original password must still work"
+        creds.verify("root", "rootpass123").expect("verify ok"),
+        "correct credentials must pass"
     );
     assert!(
-        app::services::user_service::verify_credentials(&db, "root", "otherpass999")
-            .await
-            .expect("verify overwritten password")
-            .is_none(),
-        "skipped seed must not overwrite the password"
+        !creds.verify("root", "otherpass999").expect("verify bad pw"),
+        "wrong password must fail"
+    );
+    assert!(
+        !creds
+            .verify("nobody", "rootpass123")
+            .expect("verify bad user"),
+        "wrong username must fail"
     );
 }

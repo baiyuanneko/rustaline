@@ -23,22 +23,24 @@ bynrust26/
     │   ├── main.rs       # 启动流程与优雅退出（into_make_service_with_connect_info 注入客户端 IP）
     │   ├── lib.rs        # 模块声明（集成测试依赖 lib target）
     │   ├── config.rs     # 分层配置加载（default.toml < local.toml < APP_* env）
-    │   ├── state.rs      # AppState（db / redis / config / comment_rate_limiter）
+    │   ├── state.rs      # AppState（db / redis / config / comment_rate_limiter / admin）
     │   ├── error.rs      # AppError -> 统一 JSON { code, message }
     │   ├── openapi.rs    # utoipa 聚合 + Swagger UI
     │   ├── routes/       # 路由装配（公共 /api/v1/comments、认证 /api/v1/admin/*）
     │   ├── handlers/     # 薄层：解析请求 -> 调 service -> 响应；带 utoipa::path 注解
-    │   ├── services/     # 领域逻辑（user_service / comment_service / import_service）
+    │   ├── services/     # 领域逻辑（comment_service / import_service）
     │   ├── dto/          # 请求/响应模型（derive utoipa ToSchema）
-    │   ├── auth/         # jwt 签发/校验、Redis 黑名单、AuthUser extractor
+    │   ├── auth/         # jwt 签发/校验、Redis 黑名单、AuthUser extractor、admin.rs 管理员凭据
     │   ├── middleware/   # rate_limit：IP 滑动窗口限流 + ClientIp extractor
-    │   └── entities/     # sea-orm 实体（users / comments，可由 sea-orm-cli 重新生成）
+    │   └── entities/     # sea-orm 实体（comments，可由 sea-orm-cli 重新生成）
     └── tests/api.rs      # 端到端集成测试（内存 SQLite + 临时 redis-server）
 ```
 
 ## 业务模块：rustaline 评论系统
 
 Valine 自托管替代品。comments 表完整兼容 Valine 字段（id 即 objectId、QQAvatar→qq_avatar、pid/rid 楼中楼、insertedAt→inserted_at），新增 `status`（approved/pending/spam）支撑审核。公共接口匿名（`/api/v1/comments`），管理接口走 AuthUser（`/api/v1/admin/comments*`）；Valine 导入按 objectId 幂等，单批 ≤1000 条。详见 README「rustaline 评论系统」一节。
+
+无用户表：唯一管理员账号来自环境变量 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD`（必填，缺失启动失败），启动时 argon2 哈希存内存（`auth/admin.rs` 的 `AdminCredentials`），login 比对后发 JWT（sub = 用户名）；改密码 = 改环境变量并重启。
 
 
 ## mdui vendor 管理
@@ -72,14 +74,14 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - handler 保持薄：不写 SQL / 不直接访问 `state.db` 做业务，统一走 `services/`。
 - 所有错误经 `AppError` 返回；5xx 不向外暴露内部细节（`error.rs` 已处理），新错误源加 `#[from]` 变体。
 - 新接口三件套同步更新：`handlers/` 加 `#[utoipa::path]`、`dto/` 加 `ToSchema` 模型、`openapi.rs` 的 `paths(...)` / `components(schemas(...))` 注册。
-- 除 register / login / health / swagger 外，接口一律加 `AuthUser` extractor 参数做认证。**例外**：公共评论接口 `GET/POST /api/v1/comments` 按 Valine 语义匿名开放，靠限流 + 蜜罐 + moderation 防滥用。
+- 除 login / health / swagger 外，接口一律加 `AuthUser` extractor 参数做认证。**例外**：公共评论接口 `GET/POST /api/v1/comments` 按 Valine 语义匿名开放，靠限流 + 蜜罐 + moderation 防滥用。
 - 需要登录的接口在 utoipa 注解里加 `security(("bearer_auth" = []))`。
 - 公共评论响应 DTO 绝不包含 ip / mail / ua / status（隐私）；这些字段仅出现在 `/api/v1/admin/*` 响应中。
 - 提交评论的 ip/ua 由服务端采集（ConnectInfo socket addr 优先、X-Forwarded-For 兜底），客户端 body 传的一律忽略。
 - 迁移用 sea-query 跨库写法（`sea_orm_migration::schema::*` 辅助函数），不要写单库专有 SQL；新迁移文件命名 `mYYYYMMDD_NNNNNN_<描述>.rs` 并注册进 `migration/src/lib.rs`。
 - 时间戳统一 `chrono::NaiveDateTime`（实体 `DateTime`，migration 用 `date_time(...)`），由 service 层显式赋值。序列化为 UTC 朴素时间（无时区后缀）；**前端（SDK / 管理面板）解析时必须按 UTC 处理**（现有 `parseServerTime` 助手），否则非 UTC 时区显示偏差。
-- 表名用复数（`users` / `comments`），避免与数据库保留字冲突。
-- 密码只存 argon2 哈希；任何响应不得包含 `password_hash` 字段。
+- 表名用复数（`comments`），避免与数据库保留字冲突。
+- 密码只存 argon2 哈希（管理员密码也仅以哈希形式驻留内存）；任何响应不得包含密码或哈希字段。
 - `static/sdk/rustaline.js` 保持**零依赖单文件**：原生 JS IIFE，不引框架 / CDN / npm / 字体；仅使用内置 Material 3 CSS 令牌。
 - 官网与管理面板使用**本地 vendor 的 mdui**（见下方「mdui vendor 管理」），不引 CDN、不引入 npm 运行时；面板仍为原生 ES Modules，无构建步骤。
 - 所有用户内容一律 `textContent` / `createTextNode` 渲染防 XSS，禁止 innerHTML 拼接用户数据；静态 SVG 常量可例外，但必须固定写死在本文件内。

@@ -20,14 +20,14 @@ async function loadHealth() {
 
 // 演示：不带 token 调用受保护接口，预期返回 401 统一错误 JSON
 async function callProtectedApi() {
-  const el = document.getElementById('users-result');
+  const el = document.getElementById('admin-result');
   try {
-    await renderJson(el, await fetch('/api/v1/users'));
+    await renderJson(el, await fetch('/api/v1/admin/config'));
   } catch (err) {
     el.textContent = `请求失败：${err}`;
     el.className = 'err';
   }
 }
 
-document.getElementById('call-users').addEventListener('click', callProtectedApi);
+document.getElementById('call-admin').addEventListener('click', callProtectedApi);
 loadHealth();

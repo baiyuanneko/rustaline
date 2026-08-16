@@ -53,7 +53,7 @@ function buildLoginScreen() {
 
   const hint = el("div", {
     class: "login-hint",
-    text: "首次使用请通过 Swagger UI 或 curl 调用 /api/v1/auth/register 创建管理员账号",
+    text: "账号由服务端环境变量 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD 配置",
   });
   body.appendChild(hint);
   card.appendChild(body);

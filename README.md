@@ -40,7 +40,7 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 - Swagger UI: http://localhost:8080/swagger-ui/
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
 - 评论演示页: http://localhost:8080/
-- 管理面板: http://localhost:8080/admin/（先用下方 register 创建管理员）
+- 管理面板: http://localhost:8080/admin/（账号由 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 环境变量配置）
 - 脚手架示例页: http://localhost:8080/scaffold-demo.html
 - 健康检查: `curl http://localhost:8080/health`
 
@@ -106,12 +106,10 @@ LeanCloud 控制台导出 Comment 表 JSON 后，在管理面板「导入」页�
 示例调用：
 
 ```bash
-# 注册 -> 登录 -> 带 token 访问
-curl -X POST localhost:8080/api/v1/auth/register -H 'content-type: application/json' \
-  -d '{"username":"alice","password":"secret123"}'
+# 登录（账号来自 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD）-> 带 token 访问 -> 登出
 TOKEN=$(curl -s -X POST localhost:8080/api/v1/auth/login -H 'content-type: application/json' \
-  -d '{"username":"alice","password":"secret123"}' | jq -r .access_token)
-curl localhost:8080/api/v1/users -H "Authorization: Bearer $TOKEN"
+  -d '{"username":"admin","password":"please-change-me"}' | jq -r .access_token)
+curl localhost:8080/api/v1/admin/config -H "Authorization: Bearer $TOKEN"
 curl -X POST localhost:8080/api/v1/auth/logout -H "Authorization: Bearer $TOKEN"  # 登出后该 token 立即失效
 ```
 
@@ -162,8 +160,8 @@ sea-orm-cli generate entity -o app/src/entities --with-serde none
 | `APP_JWT_SECRET` | `APP_JWT__SECRET` | JWT 签名密钥（生产必改） | `change-me-in-production` |
 | `APP_JWT_TTL_SECS` | `APP_JWT__TTL_SECS` | token 有效期（秒） | `86400`（24h） |
 | `APP_JWT_BLACKLIST_ENABLED` | `APP_JWT__BLACKLIST_ENABLED` | 是否启用 logout 黑名单；启用时 Redis 不可达则启动失败 | `true` |
-| `APP_INITIAL_ADMIN_USERNAME` | `APP_INITIAL_ADMIN__USERNAME` | 初始管理员用户名（与下项同时设置才生效） | 无 |
-| `APP_INITIAL_ADMIN_PASSWORD` | `APP_INITIAL_ADMIN__PASSWORD` | 初始管理员密码；启动时检测，账号不存在才创建（幂等，已存在不覆盖） | 无 |
+| `APP_INITIAL_ADMIN_USERNAME` | `APP_INITIAL_ADMIN__USERNAME` | 管理员用户名（唯一管理员用户；两项均为必填，缺失时应用启动失败） | 无 |
+| `APP_INITIAL_ADMIN_PASSWORD` | `APP_INITIAL_ADMIN__PASSWORD` | 管理员密码；修改密码 = 改环境变量后重启 | 无 |
 | `APP_LOG_LEVEL` | `APP_LOG__LEVEL` | 日志级别（env-filter 语法） | `info` |
 
 ## 测试

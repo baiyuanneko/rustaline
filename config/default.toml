@@ -37,3 +37,7 @@ max_length = 10000
 rate_limit_per_minute = 5
 # 未提供昵称时的默认值
 default_nick = "Anonymous"
+
+# 管理员账号（唯一用户）没有默认值：必须通过环境变量设置，缺失时应用启动失败
+#   APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD
+# （或嵌套写法 APP_INITIAL_ADMIN__USERNAME / APP_INITIAL_ADMIN__PASSWORD）

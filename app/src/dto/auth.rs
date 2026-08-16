@@ -2,14 +2,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct RegisterRequest {
-    #[schema(example = "alice")]
-    pub username: String,
-    #[schema(example = "secret123", min_length = 6)]
-    pub password: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
 pub struct LoginRequest {
     #[schema(example = "alice")]
     pub username: String,

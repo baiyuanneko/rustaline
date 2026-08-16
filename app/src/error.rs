@@ -16,8 +16,6 @@ pub enum AppError {
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
-    Conflict(String),
-    #[error("{0}")]
     TooManyRequests(String),
     #[error("internal server error")]
     Db(#[from] sea_orm::DbErr),
@@ -42,7 +40,6 @@ impl AppError {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Db(_) | Self::Redis(_) | Self::Jwt(_) | Self::PasswordHash(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR

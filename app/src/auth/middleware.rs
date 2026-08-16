@@ -11,7 +11,7 @@ use crate::state::AppState;
 /// 已认证用户。需要登录的 handler 在参数里声明它即可
 #[derive(Debug, Clone)]
 pub struct AuthUser {
-    pub user_id: i32,
+    pub username: String,
     /// 当前 token 的 jti（logout 用）
     pub jti: String,
     /// 当前 token 的过期时间（秒级时间戳，logout 计算剩余 TTL 用）
@@ -47,13 +47,8 @@ impl FromRequestParts<AppState> for AuthUser {
             }
         }
 
-        let user_id = claims
-            .sub
-            .parse::<i32>()
-            .map_err(|_| AppError::Unauthorized("invalid token subject".into()))?;
-
         Ok(AuthUser {
-            user_id,
+            username: claims.sub,
             jti: claims.jti,
             exp: claims.exp,
         })

@@ -46,6 +46,9 @@ services:
       APP_REDIS_URL: redis://redis:6379
       # 生产环境务必通过 .env / secret 注入，不要提交真实密钥
       APP_JWT_SECRET: ${APP_JWT_SECRET:-change-me-in-production}
+      # 管理员账号（唯一用户）；密码必须注入，不提供默认值
+      APP_INITIAL_ADMIN_USERNAME: ${APP_INITIAL_ADMIN_USERNAME:-admin}
+      APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:?must set APP_INITIAL_ADMIN_PASSWORD}
       APP_LOG_LEVEL: info
     volumes:
       - sqlite-data:/app/data

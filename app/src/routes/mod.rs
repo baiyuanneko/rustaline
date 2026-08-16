@@ -29,19 +29,8 @@ pub fn create_router(state: AppState) -> Router {
 
 fn api_v1(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/logout", post(handlers::auth::logout))
-        .route(
-            "/users",
-            get(handlers::user::list_users).post(handlers::user::create_user),
-        )
-        .route(
-            "/users/{id}",
-            get(handlers::user::get_user)
-                .put(handlers::user::update_user)
-                .delete(handlers::user::delete_user),
-        )
         .route("/comments", get(handlers::comment::list_comments))
         .merge(
             Router::new()
