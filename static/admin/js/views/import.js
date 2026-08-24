@@ -263,7 +263,7 @@ function stageImport(items, source) {
   if (dropzone) {
     let startBtn = document.getElementById("start-import-btn");
     if (!startBtn) {
-      const dzCard = dropzone.closest(".page-card");
+      const dzBody = dropzone.closest(".page-card")?.querySelector(".page-card__body");
       startBtn = el("mdui-button", {
         variant: "filled",
         id: "start-import-btn",
@@ -271,7 +271,7 @@ function stageImport(items, source) {
         text: `开始导入（${total} 条）`,
       });
       startBtn.addEventListener("click", () => runImport());
-      dzCard.appendChild(startBtn);
+      (dzBody || dropzone.parentNode).appendChild(startBtn);
     } else {
       startBtn.textContent = `开始导入（${total} 条）`;
     }

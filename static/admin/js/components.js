@@ -21,7 +21,15 @@ export function icon(name) {
   node.setAttribute("aria-hidden", "true");
   const template = document.createElement("template");
   template.innerHTML = ICONS[name] || "";
-  while (template.content.firstChild) node.appendChild(template.content.firstChild);
+  while (template.content.firstChild) {
+    const child = template.content.firstChild;
+    // mdui-icon 的 shadow css 有 ::slotted(svg){fill:currentcolor}，会覆盖 fill="none" 表现属性
+    // 把描边图标的 fill 提为内联样式，防止渲染成实心色块
+    if (child.nodeName?.toLowerCase() === "svg" && child.getAttribute("fill") === "none") {
+      child.style.fill = "none";
+    }
+    node.appendChild(child);
+  }
   return node;
 }
 

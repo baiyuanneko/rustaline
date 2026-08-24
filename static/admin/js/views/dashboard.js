@@ -12,7 +12,7 @@ export async function render(container) {
     const stats = await fetchStats();
     loading.remove();
     container.appendChild(statsGrid(stats));
-    container.appendChild(urlRankCard(stats));
+    container.appendChild(urlRankSection(stats));
   } catch (err) {
     loading.remove();
     container.appendChild(
@@ -79,16 +79,16 @@ function statsGrid(stats) {
   return grid;
 }
 
-function urlRankCard(stats) {
-  const card = el("mdui-card", { class: "page-card" });
-  const header = el("div", { class: "page-card__header" });
+function urlRankSection(stats) {
+  const section = el("div", { class: "section" });
+  const header = el("div", { class: "section__header" });
   const titleBox = el("div");
-  titleBox.appendChild(el("div", { class: "page-card__title", text: "URL 评论数排行" }));
-  titleBox.appendChild(el("div", { class: "page-card__subtitle", text: "按文章评论数倒序，取前 100" }));
+  titleBox.appendChild(el("div", { class: "section__title", text: "URL 评论数排行" }));
+  titleBox.appendChild(el("div", { class: "section__subtitle", text: "按文章评论数倒序，取前 100" }));
   header.appendChild(titleBox);
-  card.appendChild(header);
+  section.appendChild(header);
 
-  const body = el("div", { class: "page-card__body" });
+  const body = el("div", { class: "section__body" });
   const urls = stats.urls || [];
   if (urls.length === 0) {
     body.appendChild(emptyState({ title: "暂无数据", hint: "尚无评论或未生成统计" }));
@@ -110,8 +110,8 @@ function urlRankCard(stats) {
       body.appendChild(row);
     });
   }
-  card.appendChild(body);
-  return card;
+  section.appendChild(body);
+  return section;
 }
 
 function formatNum(n) {

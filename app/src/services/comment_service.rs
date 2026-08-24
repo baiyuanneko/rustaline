@@ -10,9 +10,9 @@ use uuid::Uuid;
 
 use crate::config::CommentConfig;
 use crate::dto::{
-    AdminCommentListResponse, AdminCommentResponse, AdminConfigResponse, CommentConfigResponse,
-    CommentCreateRequest, CommentPublicResponse, CommentStatsResponse, CommentStatusUpdate,
-    UrlCount,
+    AdminCommentListResponse, AdminCommentParent, AdminCommentResponse, AdminConfigResponse,
+    CommentConfigResponse, CommentCreateRequest, CommentPublicResponse, CommentStatsResponse,
+    CommentStatusUpdate, UrlCount,
 };
 use crate::entities::comments;
 use crate::error::AppError;
@@ -162,8 +162,43 @@ pub async fn list_admin(
         .all(db)
         .await?;
 
+    // 批量取本页所有 pid 指向的父评论（一次 IN 查询），供前端展示「回复 @谁：摘要」
+    let pids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.pid.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    let parents = if pids.is_empty() {
+        Vec::new()
+    } else {
+        comments::Entity::find()
+            .filter(comments::Column::Id.is_in(pids))
+            .all(db)
+            .await?
+    };
+    let parent_map: std::collections::HashMap<String, AdminCommentParent> = parents
+        .into_iter()
+        .map(|p| {
+            (
+                p.id.clone(),
+                AdminCommentParent {
+                    id: p.id,
+                    nick: p.nick,
+                    comment: p.comment,
+                },
+            )
+        })
+        .collect();
+
     Ok(AdminCommentListResponse {
-        items: rows.into_iter().map(admin_dto_from_model).collect(),
+        items: rows
+            .into_iter()
+            .map(|m| {
+                let parent = m.pid.as_ref().and_then(|pid| parent_map.get(pid).cloned());
+                admin_dto_from_model(m, parent)
+            })
+            .collect(),
         total,
         page,
         page_size,
@@ -191,7 +226,7 @@ pub async fn update_status(
     active.status = Set(status);
     active.updated_at = Set(Utc::now().naive_utc());
     let updated = active.update(db).await?;
-    Ok(admin_dto_from_model(updated))
+    Ok(admin_dto_from_model(updated, None))
 }
 
 pub async fn delete_comment(db: &DatabaseConnection, id: &str) -> Result<(), AppError> {
@@ -338,7 +373,10 @@ fn public_dto_from_model(m: comments::Model) -> CommentPublicResponse {
     }
 }
 
-fn admin_dto_from_model(m: comments::Model) -> AdminCommentResponse {
+fn admin_dto_from_model(
+    m: comments::Model,
+    parent: Option<AdminCommentParent>,
+) -> AdminCommentResponse {
     AdminCommentResponse {
         id: m.id,
         comment: m.comment,
@@ -349,6 +387,7 @@ fn admin_dto_from_model(m: comments::Model) -> AdminCommentResponse {
         url: m.url,
         pid: m.pid,
         rid: m.rid,
+        parent,
         ip: m.ip,
         ua: m.ua,
         is_notified: m.is_notified,

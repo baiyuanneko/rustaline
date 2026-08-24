@@ -67,25 +67,32 @@ async function renderRoute() {
   refreshPendingBadge();
 }
 
+// 视图渲染代际标记：view 渲染内含异步 await，期间路由可能已切换；
+// 渲染到离屏容器、完成后校验代际再挂载，避免过期视图内容串到当前页
+let renderSeq = 0;
+
 async function mountView(viewModule) {
   const app = appEl();
   if (!app) return;
-  app.replaceChildren();
+  const seq = ++renderSeq;
   if (viewModule.cleanup) {
     try {
       viewModule.cleanup();
     } catch (_) { /* noop */ }
   }
+  const host = document.createElement("div");
   try {
-    await viewModule.render(app);
+    await viewModule.render(host);
   } catch (err) {
-    app.replaceChildren();
+    host.replaceChildren();
     const errBox = document.createElement("div");
     errBox.className = "page-card mdui-card page-card__body";
     errBox.style.color = "rgb(var(--mdui-color-error))";
     errBox.textContent = `页面加载失败：${err && err.message ? err.message : err}`;
-    app.appendChild(errBox);
+    host.appendChild(errBox);
   }
+  if (seq !== renderSeq) return;
+  app.replaceChildren(host);
 }
 
 function setActiveNav(navKey) {

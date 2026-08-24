@@ -40,6 +40,14 @@ pub struct CommentListQuery {
     pub url: String,
 }
 
+/// 父评论摘要：管理列表里把「回复谁」直观展示出来，避免只给一串 pid
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AdminCommentParent {
+    pub id: String,
+    pub nick: String,
+    pub comment: String,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdminCommentResponse {
     pub id: String,
@@ -51,6 +59,8 @@ pub struct AdminCommentResponse {
     pub url: String,
     pub pid: Option<String>,
     pub rid: Option<String>,
+    /// 父评论摘要（pid 指向的评论存在时返回；仅列表接口填充）
+    pub parent: Option<AdminCommentParent>,
     pub ip: Option<String>,
     pub ua: Option<String>,
     pub is_notified: bool,

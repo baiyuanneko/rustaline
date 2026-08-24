@@ -38,6 +38,8 @@ const state = {
 };
 
 let tableHost = null;
+let urlFilter = null;
+let urlDocListener = null;
 
 export async function render(container) {
   applyHashQuery();
@@ -45,14 +47,12 @@ export async function render(container) {
   container.appendChild(pageHead());
   container.appendChild(buildFilters());
 
-  const card = el("mdui-card", { class: "page-card" });
-  tableHost = el("div");
-  card.appendChild(tableHost);
-  container.appendChild(card);
+  tableHost = el("div", { class: "section" });
+  container.appendChild(tableHost);
 
+  // URL 选项在打开下拉时才渲染，这里只需缓存数据
   loadUrlOptions().then((opts) => {
     state.urlOptions = opts;
-    refreshUrlSelect();
   });
 
   await loadList(tableHost);
@@ -93,15 +93,7 @@ function buildFilters() {
   });
   wrap.appendChild(statusSel);
 
-  const urlSel = el("mdui-select", { id: "filter-url", label: "URL", variant: "filled" });
-  urlSel.appendChild(menuItem("", "全部 URL"));
-  urlSel.value = state.url;
-  urlSel.addEventListener("change", () => {
-    state.url = urlSel.value;
-    state.page = 1;
-    reload();
-  });
-  state._urlSel = urlSel;
+  const urlSel = buildUrlFilter();
   wrap.appendChild(urlSel);
 
   const kwInput = el("mdui-text-field", {
@@ -136,7 +128,7 @@ function buildFilters() {
     state.keyword = "";
     state.page = 1;
     statusSel.value = "";
-    urlSel.value = "";
+    if (urlFilter) urlFilter.input.value = "";
     kwInput.value = "";
     reload();
   });
@@ -150,18 +142,88 @@ function menuItem(value, text) {
   return item;
 }
 
-function refreshUrlSelect() {
-  const sel = state._urlSel;
-  if (!sel) return;
-  sel.replaceChildren();
-  sel.appendChild(menuItem("", "全部 URL"));
+// URL 筛选：mdui-select 不支持搜索且长列表体验差，
+// 改为「输入框 + 向下展开的过滤面板」组合，输入即过滤，点选后应用筛选。
+function buildUrlFilter() {
+  const box = el("div", { class: "url-filter" });
+  const input = el("mdui-text-field", {
+    id: "filter-url",
+    label: "URL",
+    variant: "filled",
+    type: "search",
+    placeholder: "输入关键字筛选 URL",
+    value: state.url,
+    attrs: { autocomplete: "off" },
+  });
+  const panel = el("div", { class: "url-filter__panel", style: { display: "none" } });
 
-  for (const opt of state.urlOptions) {
-    const o = el("mdui-menu-item", { value: opt });
-    o.textContent = opt.length > 60 ? opt.slice(0, 60) + "…" : opt;
-    sel.appendChild(o);
+  const close = () => {
+    panel.style.display = "none";
+  };
+  const choose = (value) => {
+    input.value = value;
+    close();
+    if (state.url !== value) {
+      state.url = value;
+      state.page = 1;
+      reload();
+    }
+  };
+  const renderOptions = (kw) => {
+    const k = String(kw || "").trim().toLowerCase();
+    const matched = k
+      ? state.urlOptions.filter((u) => u.toLowerCase().includes(k))
+      : state.urlOptions;
+    panel.replaceChildren();
+    const all = el("div", {
+      class: `url-filter__opt${state.url ? "" : " is-active"}`,
+      text: "全部 URL",
+    });
+    all.addEventListener("click", () => choose(""));
+    panel.appendChild(all);
+    if (matched.length === 0) {
+      panel.appendChild(el("div", { class: "url-filter__empty", text: "没有匹配的 URL" }));
+    }
+    // 上限 200 条防止超长列表拖慢渲染（URL 排行接口本身只给前 100）
+    for (const u of matched.slice(0, 200)) {
+      const opt = el("div", {
+        class: `url-filter__opt${state.url === u ? " is-active" : ""}`,
+        text: u,
+        title: u,
+      });
+      opt.addEventListener("click", () => choose(u));
+      panel.appendChild(opt);
+    }
+  };
+  const open = () => {
+    renderOptions("");
+    panel.style.display = "";
+  };
+
+  input.addEventListener("focusin", open);
+  input.addEventListener("input", () => {
+    renderOptions(input.value);
+    panel.style.display = "";
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+  });
+
+  box.appendChild(input);
+  box.appendChild(panel);
+  urlFilter = { input, box, close };
+
+  // 点击组件外部时收起面板（全局只注册一次，组件重渲染后通过 urlFilter 引用最新实例）
+  if (!urlDocListener) {
+    urlDocListener = (e) => {
+      if (!urlFilter) return;
+      if (urlFilter.box.isConnected && !urlFilter.box.contains(e.target)) {
+        urlFilter.close();
+      }
+    };
+    document.addEventListener("click", urlDocListener);
   }
-  sel.value = state.url;
+  return box;
 }
 
 async function loadUrlOptions() {
@@ -271,13 +333,19 @@ function renderRow(item) {
 
   if (item.pid) {
     const reply = el("div", { class: "comment-cell__reply" });
-    reply.appendChild(el("span", { text: "回复 → " }));
-    const replyId = el("span", {
-      text: String(item.pid).slice(0, 12),
-      title: `父评论 ID：${item.pid}`,
-      style: { fontFamily: "var(--mdui-typescale-body-small-font, ui-monospace), monospace" },
-    });
-    reply.appendChild(replyId);
+    if (item.parent) {
+      // 直观展示「回复 @谁：内容摘要」，悬停可见父评论全文
+      const full = item.parent.comment || "";
+      const excerpt = full.length > 30 ? `${full.slice(0, 30)}…` : full;
+      reply.appendChild(el("span", {
+        class: "comment-cell__reply-nick",
+        text: `回复 @${item.parent.nick || "Anonymous"}`,
+      }));
+      reply.appendChild(el("span", { text: `：${excerpt}`, title: full }));
+    } else {
+      // 父评论已不存在（如导入数据的孤儿 pid），退化为提示 + 原始 pid
+      reply.appendChild(el("span", { text: "回复一条评论", title: `父评论 ID：${item.pid}` }));
+    }
     contentWrap.appendChild(reply);
   }
   contentTd.appendChild(contentWrap);
@@ -481,4 +549,10 @@ function openDetail(item) {
   return detail;
 }
 
-export function cleanup() {}
+export function cleanup() {
+  if (urlDocListener) {
+    document.removeEventListener("click", urlDocListener);
+    urlDocListener = null;
+  }
+  urlFilter = null;
+}
