@@ -63,6 +63,26 @@ pub async fn rate_limit_middleware(
     Ok(next.run(request).await)
 }
 
+/// 登录接口限流上限：固定 5 次/分钟/IP（M-1 防爆破）。
+/// 与评论限流各自独立计数；凭据对错都计数（中间件在认证逻辑之前拦截）。
+const LOGIN_MAX_PER_MINUTE: u32 = 5;
+
+/// 登录限流 middleware，仅挂在 POST /api/v1/auth/login 上。
+pub async fn login_rate_limit_middleware(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    let ip = extract_client_ip(request.headers(), request.extensions())
+        .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
+    if !state.login_rate_limiter.check(ip, LOGIN_MAX_PER_MINUTE) {
+        return Err(AppError::TooManyRequests(
+            "login rate limit exceeded, try again later".into(),
+        ));
+    }
+    Ok(next.run(request).await)
+}
+
 /// 取客户端 IP：优先 ConnectInfo（socket addr，由 into_make_service_with_connect_info 注入），
 /// 其次 X-Forwarded-For（反向代理场景）。两者均不可得时返回 None。
 pub fn extract_client_ip(headers: &HeaderMap, ext: &Extensions) -> Option<IpAddr> {

@@ -50,8 +50,10 @@ services:
       # 数据库文件落在挂载的 ./data 下（容器以非 root 的 dev 用户写入，归属宿主机当前用户）
       APP_DATABASE_URL: sqlite:///workspace/data/bynrust26-dev.db?mode=rwc
       APP_REDIS_URL: redis://redis:6379
-      APP_JWT_SECRET: ${APP_JWT_SECRET:-dev-only-secret}
-      # 管理员账号（唯一用户），dev 默认值仅限本地开发
+      # 仅限本地开发的固定密钥（≥32 字节以满足启动校验；生产 compose 文件无默认值）
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-dev-only-local-secret-7f3a9c1e5b28d460}
+      # 管理员账号（唯一用户）：仅首次启动（admins 表为空）时作为种子入库，之后被忽略；
+      # dev 默认值仅限本地开发
       APP_INITIAL_ADMIN_USERNAME: ${APP_INITIAL_ADMIN_USERNAME:-admin}
       APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:-admin123456}
       APP_LOG_LEVEL: debug

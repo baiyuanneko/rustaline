@@ -2,12 +2,12 @@ use axum::extract::State;
 use axum::{Json, debug_handler};
 use chrono::Utc;
 
-use crate::auth::{blacklist, jwt, middleware::AuthUser};
-use crate::dto::{LoginRequest, LoginResponse, MessageResponse};
+use crate::auth::{admin, blacklist, jwt, middleware::AuthUser};
+use crate::dto::{ChangePasswordRequest, LoginRequest, LoginResponse, MessageResponse};
 use crate::error::AppError;
 use crate::state::AppState;
 
-/// 登录，签发 JWT access token。唯一管理员账号来自 initial_admin 配置（环境变量）
+/// 登录，签发 JWT access token。唯一管理员凭据落库（admins 表），token 携带 token_version
 #[utoipa::path(
     post,
     path = "/api/v1/auth/login",
@@ -16,6 +16,7 @@ use crate::state::AppState;
     responses(
         (status = 200, description = "Logged in", body = LoginResponse),
         (status = 401, description = "Invalid credentials", body = crate::dto::ErrorResponse),
+        (status = 429, description = "Rate limit exceeded", body = crate::dto::ErrorResponse),
     )
 )]
 #[debug_handler]
@@ -23,14 +24,13 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
-    if !state.admin.verify(&payload.username, &payload.password)? {
-        return Err(AppError::Unauthorized(
-            "invalid username or password".into(),
-        ));
-    }
+    let account = admin::verify_login(&state.db, &payload.username, &payload.password)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("invalid username or password".into()))?;
 
     let (token, _) = jwt::encode_token(
-        &state.admin.username,
+        &account.username,
+        account.token_version,
         &state.config.jwt.secret,
         state.config.jwt.ttl_secs,
     )?;
@@ -69,5 +69,37 @@ pub async fn logout(
     }
     Ok(Json(MessageResponse {
         message: "logged out".into(),
+    }))
+}
+
+/// 修改密码（唯一管理员自助）。校验当前密码后写入新哈希并自增 token_version：
+/// 包括当前在内的全部旧 token 立即失效，前端应引导重新登录
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/account/password",
+    tag = "auth",
+    security(("bearer_auth" = [])),
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 200, description = "Password updated; all tokens revoked", body = MessageResponse),
+        (status = 400, description = "Current password incorrect or new password too weak", body = crate::dto::ErrorResponse),
+        (status = 401, description = "Missing or invalid token", body = crate::dto::ErrorResponse),
+    )
+)]
+#[debug_handler]
+pub async fn change_password(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<Json<MessageResponse>, AppError> {
+    admin::change_password(
+        &state.db,
+        &user.username,
+        &payload.current_password,
+        &payload.new_password,
+    )
+    .await?;
+    Ok(Json(MessageResponse {
+        message: "password updated, please login again".into(),
     }))
 }

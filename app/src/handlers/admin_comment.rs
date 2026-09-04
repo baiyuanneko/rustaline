@@ -32,6 +32,7 @@ pub async fn list_admin_comments(
     let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
     let result = comment_service::list_admin(
         &state.db,
+        &state.config.comment,
         query.status.as_deref(),
         query.url.as_deref(),
         query.keyword.as_deref(),
@@ -63,7 +64,8 @@ pub async fn update_comment_status(
     Path(id): Path<String>,
     Json(payload): Json<CommentStatusUpdate>,
 ) -> Result<Json<crate::dto::AdminCommentResponse>, AppError> {
-    let result = comment_service::update_status(&state.db, &id, payload).await?;
+    let result =
+        comment_service::update_status(&state.db, &state.config.comment, &id, payload).await?;
     Ok(Json(result))
 }
 

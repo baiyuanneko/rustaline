@@ -72,6 +72,13 @@ pub struct CommentConfig {
     /// 未提供昵称时的默认值
     #[serde(default = "default_nick")]
     pub default_nick: String,
+    /// 邮箱头像（gravatar 协议）镜像 CDN；置空字符串 = 完全禁用邮箱头像层
+    #[serde(default = "default_avatar_cdn")]
+    pub avatar_cdn: String,
+}
+
+fn default_avatar_cdn() -> String {
+    "https://gravatar.loli.net/avatar/".to_owned()
 }
 
 fn default_max_length() -> usize {
@@ -91,6 +98,7 @@ impl Default for CommentConfig {
             max_length: default_max_length(),
             rate_limit_per_minute: default_rate_limit_per_minute(),
             default_nick: default_nick(),
+            avatar_cdn: default_avatar_cdn(),
         }
     }
 }
@@ -100,6 +108,24 @@ impl Default for CommentConfig {
 pub struct InitialAdminConfig {
     pub username: Option<String>,
     pub password: Option<String>,
+}
+
+/// 校验 JWT 密钥强度：拒绝已知弱默认值，且要求至少 32 字节。
+/// 仅在 main.rs 启动路径调用（Config::load 之外），测试与 migration CLI 不受影响。
+pub fn validate_jwt_secret(secret: &str) -> Result<(), String> {
+    const KNOWN_WEAK: &[&str] = &["change-me-in-production", "dev-only-secret"];
+    if KNOWN_WEAK.contains(&secret) {
+        return Err(format!(
+            "APP_JWT_SECRET 仍是示例弱密钥 {secret:?}，请用 `openssl rand -base64 48` 生成随机密钥"
+        ));
+    }
+    if secret.len() < 32 {
+        return Err(format!(
+            "APP_JWT_SECRET 过短（{} 字节，要求 ≥32 字节），请用 `openssl rand -base64 48` 生成随机密钥",
+            secret.len()
+        ));
+    }
+    Ok(())
 }
 
 /// 单层环境变量简写 -> 嵌套配置键
@@ -120,6 +146,7 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
         "comment.rate_limit_per_minute",
     ),
     ("APP_COMMENT_DEFAULT_NICK", "comment.default_nick"),
+    ("APP_AVATAR_CDN", "comment.avatar_cdn"),
     ("APP_INITIAL_ADMIN_USERNAME", "initial_admin.username"),
     ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
 ];
@@ -150,5 +177,34 @@ impl AppConfig {
         }
 
         builder.build()?.try_deserialize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_jwt_secret;
+
+    #[test]
+    fn jwt_secret_rejects_known_weak_values() {
+        for weak in ["change-me-in-production", "dev-only-secret"] {
+            let err = validate_jwt_secret(weak).expect_err("weak default must be rejected");
+            assert!(err.contains("openssl rand"), "error should hint fix: {err}");
+        }
+    }
+
+    #[test]
+    fn jwt_secret_rejects_short_values() {
+        let err = validate_jwt_secret("test-secret").expect_err("short secret must be rejected");
+        assert!(err.contains("≥32"), "error should state minimum: {err}");
+        // 31 字节差一字节也不行；空字符串同理
+        assert!(validate_jwt_secret(&"a".repeat(31)).is_err());
+        assert!(validate_jwt_secret("").is_err());
+    }
+
+    #[test]
+    fn jwt_secret_accepts_strong_values() {
+        assert!(validate_jwt_secret(&"a".repeat(32)).is_ok());
+        // openssl rand -base64 48 的典型输出长度
+        assert!(validate_jwt_secret(&"x".repeat(64)).is_ok());
     }
 }

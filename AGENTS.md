@@ -11,7 +11,7 @@ bynrust26/
 ├── static/               # 静态文件目录，ServeDir 兜底挂载于根路径（目录请求返回 index.html）
 │   ├── index.html        # rustaline 评论系统演示主页（mdui 风格，引入 sdk/rustaline.js）
 │   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示）
-│   ├── theme.js          # mdui 主题初始化（mdui-theme-auto + setColorScheme）
+│   ├── theme.js          # mdui 主题初始化（默认种子色 #2196f3 Material 蓝；主题色与明暗模式 light/dark/auto 均持久化于 localStorage，页面侧经 window.rustalineTheme 读写）
 │   ├── vendor/mdui/      # 本地 vendor 的 mdui 2.1.5（mdui.global.js / mdui.css / LICENSE / SHA256SUMS）
 │   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，Material 3 视觉，全局 Rustaline 类，支持多实例
 │   └── admin/            # 管理面板：原生 ES Modules SPA（hash 路由）+ mdui Web Components
@@ -23,24 +23,30 @@ bynrust26/
     │   ├── main.rs       # 启动流程与优雅退出（into_make_service_with_connect_info 注入客户端 IP）
     │   ├── lib.rs        # 模块声明（集成测试依赖 lib target）
     │   ├── config.rs     # 分层配置加载（default.toml < local.toml < APP_* env）
-    │   ├── state.rs      # AppState（db / redis / config / comment_rate_limiter / admin）
+    │   ├── state.rs      # AppState（db / redis / config / comment_rate_limiter / login_rate_limiter / admin）
     │   ├── error.rs      # AppError -> 统一 JSON { code, message }
     │   ├── openapi.rs    # utoipa 聚合 + Swagger UI
     │   ├── routes/       # 路由装配（公共 /api/v1/comments、认证 /api/v1/admin/*）
     │   ├── handlers/     # 薄层：解析请求 -> 调 service -> 响应；带 utoipa::path 注解
     │   ├── services/     # 领域逻辑（comment_service / import_service）
     │   ├── dto/          # 请求/响应模型（derive utoipa ToSchema）
-    │   ├── auth/         # jwt 签发/校验、Redis 黑名单、AuthUser extractor、admin.rs 管理员凭据
-    │   ├── middleware/   # rate_limit：IP 滑动窗口限流 + ClientIp extractor
-    │   └── entities/     # sea-orm 实体（comments，可由 sea-orm-cli 重新生成）
+    │   ├── auth/         # jwt 签发/校验、Redis 黑名单、AuthUser extractor、admin.rs 管理员账号（种子/登录/改密）
+    │   ├── middleware/   # rate_limit：IP 滑动窗口限流（评论提交 + 登录各一实例）+ ClientIp extractor
+    │   └── entities/     # sea-orm 实体（comments / admins）
     └── tests/api.rs      # 端到端集成测试（内存 SQLite + 临时 redis-server）
 ```
 
 ## 业务模块：rustaline 评论系统
 
-Valine 自托管替代品。comments 表完整兼容 Valine 字段（id 即 objectId、QQAvatar→qq_avatar、pid/rid 楼中楼、insertedAt→inserted_at），新增 `status`（approved/pending/spam）支撑审核。公共接口匿名（`/api/v1/comments`），管理接口走 AuthUser（`/api/v1/admin/comments*`）；Valine 导入按 objectId 幂等，单批 ≤1000 条。详见 README「rustaline 评论系统」一节。
+Valine 自托管替代品。comments 表完整兼容 Valine 字段（id 即 objectId、QQAvatar→qq_avatar、pid/rid 楼中楼、insertedAt→inserted_at），新增 `status`（approved/pending/spam）支撑审核。公共接口匿名（`GET/POST /api/v1/comments` + `GET /api/v1/comments/replies`），管理接口走 AuthUser（`/api/v1/admin/comments*`）；Valine 导入按 objectId 幂等，单批 ≤1000 条。详见 README「rustaline 评论系统」一节。
 
-无用户表：唯一管理员账号来自环境变量 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD`（必填，缺失启动失败），启动时 argon2 哈希存内存（`auth/admin.rs` 的 `AdminCredentials`），login 比对后发 JWT（sub = 用户名）；改密码 = 改环境变量并重启。
+公共列表为**楼中楼分页契约**：`GET /api/v1/comments?url=&page=` 按 root（pid IS NULL）倒序分页（默认 10、上限 20/页），返回 `{ count, root_total, page, page_size, roots }`，每楼带 `reply_count` 与最早 5 条 `replies` 预览；`count` = 该 url 全部 approved 数（含回复）。楼内展开走 `GET /api/v1/comments/replies?url=&rid=&offset=&limit=`（时间升序，limit ≤50，rid 须指向同 url 顶层评论否则 400）。SDK 侧：超过 3 层的嵌套折叠为「继续查看这段对话」占位条（就地展开零请求），预览不全的楼尾部出「查看全部 N 条回复」（调 replies 接口拉全量）。
+
+提交走白名单：只收 `url/comment/nick/mail/link/pid/rid/hp`，其余字段（含 qq_avatar）serde 忽略；rid 由服务端按父评论推导，客户端显式 rid 与推导值不一致 → 400；顶层提交的 rid 一律丢弃。各字段长度与建表迁移 varchar 对齐（常量集中在 `comment_service.rs` 顶部，改动需两边同步）；UA 服务端截断 512 字符。登录接口固定 5 次/分钟/IP 限流（`login_rate_limit_middleware`，与评论限流独立）。
+
+JWT 密钥启动时强制校验（`config.rs::validate_jwt_secret`，在 main.rs 调用）：拒绝已知弱默认值、要求 ≥32 字节，不满足即启动失败；`docker-compose.yml` 用 `${APP_JWT_SECRET:?}` 缺失报错（dev compose 保留仅本地的 ≥32 字节默认值）。
+
+单管理员入库：`admins` 表仅一行（迁移 m20260903_000001）。`APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 仅在表为空时作首次种子（此时缺失即启动失败），入库后被完全忽略（改动无效，可从 env 移除）。密码只存 argon2 哈希；login 查库比对发 JWT（sub = 用户名，claims 带 ver = token_version）；改密码走管理面板设置页（`POST /api/v1/admin/account/password`，校验当前密码、新密码 ≥8 字符），改密自增 token_version 使包括当前在内的全部旧 token 立即失效；AuthUser 在验签 + 黑名单后查库比对 token_version（单管理员低频，每请求一次 DB 查询可接受）。
 
 
 ## mdui vendor 管理
@@ -81,7 +87,7 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - 迁移用 sea-query 跨库写法（`sea_orm_migration::schema::*` 辅助函数），不要写单库专有 SQL；新迁移文件命名 `mYYYYMMDD_NNNNNN_<描述>.rs` 并注册进 `migration/src/lib.rs`。
 - 时间戳统一 `chrono::NaiveDateTime`（实体 `DateTime`，migration 用 `date_time(...)`），由 service 层显式赋值。序列化为 UTC 朴素时间（无时区后缀）；**前端（SDK / 管理面板）解析时必须按 UTC 处理**（现有 `parseServerTime` 助手），否则非 UTC 时区显示偏差。
 - 表名用复数（`comments`），避免与数据库保留字冲突。
-- 密码只存 argon2 哈希（管理员密码也仅以哈希形式驻留内存）；任何响应不得包含密码或哈希字段。
+- 密码只存 argon2 哈希（管理员密码也仅以哈希形式入库）；任何响应不得包含密码或哈希字段。
 - `static/sdk/rustaline.js` 保持**零依赖单文件**：原生 JS IIFE，不引框架 / CDN / npm / 字体；仅使用内置 Material 3 CSS 令牌。
 - 官网与管理面板使用**本地 vendor 的 mdui**（见下方「mdui vendor 管理」），不引 CDN、不引入 npm 运行时；面板仍为原生 ES Modules，无构建步骤。
 - 所有用户内容一律 `textContent` / `createTextNode` 渲染防 XSS，禁止 innerHTML 拼接用户数据；静态 SVG 常量可例外，但必须固定写死在本文件内。

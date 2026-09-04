@@ -15,7 +15,7 @@ migration = { path = "migration" }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "fs", "set-header"] }
 
 # ORM（DB 驱动 feature 在各 crate 的 features 里开启：sqlx-sqlite / sqlx-postgres / sqlx-mysql）
 sea-orm = { version = "2", features = ["runtime-tokio-rustls", "macros"] }

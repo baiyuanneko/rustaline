@@ -35,6 +35,44 @@ body {
   flex: 1 1 auto;
 }
 
+/* ---- 外观设置对话框 ---- */
+.theme-picker {
+  display: grid;
+  gap: 10px;
+  min-width: min(320px, 70vw);
+}
+
+.theme-picker__label {
+  font-size: 13px;
+  color: rgb(var(--mdui-color-on-surface-variant));
+}
+
+.theme-picker__colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.theme-picker__swatch {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+
+.theme-picker__swatch mdui-icon {
+  font-size: 18px;
+}
+
+.theme-picker__swatch.is-active {
+  outline: 2px solid rgb(var(--mdui-color-on-surface));
+  outline-offset: 2px;
+}
+
 .topbar__user {
   display: flex;
   align-items: center;
@@ -307,6 +345,15 @@ mdui-badge[hidden] {
   font-size: 14px;
 }
 
+/* 头像是 light DOM 里 slot 进 mdui-avatar 的 img，必须缩放到槽位大小，
+   否则 64px 原图在 32px 圆形容器里只显示中心一块（放大裁剪感） */
+.avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .author-cell {
   display: flex;
   align-items: center;
@@ -533,6 +580,22 @@ mdui-badge[hidden] {
   font-size: 12.5px;
   line-height: 1.7;
   color: rgb(var(--mdui-color-on-surface-variant));
+}
+
+/* 设置页：修改密码表单（位于模态框内） */
+.password-form {
+  display: grid;
+  gap: 8px;
+  min-width: min(340px, 70vw);
+}
+
+.password-form__error {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: var(--mdui-shape-corner-extra-small, 8px);
+  font-size: 13px;
+  color: rgb(var(--mdui-color-on-error-container));
+  background: rgb(var(--mdui-color-error-container));
 }
 
 /* ---- 仪表盘 ---- */

@@ -5,7 +5,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use app::auth::admin::AdminCredentials;
 use app::config::{
     AppConfig, CommentConfig, DatabaseConfig, InitialAdminConfig, JwtConfig, LogConfig,
     RedisConfig, ServerConfig, StaticConfig,
@@ -74,12 +73,17 @@ async fn build_app(redis_url: Option<String>, blacklist_enabled: bool) -> Router
         None => None,
     };
 
+    // 管理员种子入库（与生产 main.rs 同一条路径）
+    app::auth::admin::seed_admin(&db, &config.initial_admin)
+        .await
+        .expect("seed admin");
+
     create_router(AppState {
         db,
         redis,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
-        admin: AdminCredentials::new("admin", "adminpass123").expect("admin credentials"),
+        login_rate_limiter: RateLimiter::new(),
     })
 }
 
@@ -92,12 +96,16 @@ async fn build_app_with_comment(comment: CommentConfig) -> Router {
     let mut config = test_config(false);
     config.comment = comment;
 
+    app::auth::admin::seed_admin(&db, &config.initial_admin)
+        .await
+        .expect("seed admin");
+
     create_router(AppState {
         db,
         redis: None,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
-        admin: AdminCredentials::new("admin", "adminpass123").expect("admin credentials"),
+        login_rate_limiter: RateLimiter::new(),
     })
 }
 
@@ -391,7 +399,12 @@ async fn comment_submit_and_validation() {
     assert_eq!(body["comment"], "Hello!");
     assert_eq!(body["nick"], "tester");
     assert_eq!(body["url"], "/p1");
-    assert!(body["avatar"].as_str().unwrap().contains("cravatar.cn"));
+    assert!(
+        body["avatar"]
+            .as_str()
+            .unwrap()
+            .contains("gravatar.loli.net")
+    );
     assert!(body["ip"].is_null());
     assert!(body["mail"].is_null());
     assert!(body["ua"].is_null());
@@ -423,6 +436,51 @@ async fn comment_submit_and_validation() {
 }
 
 #[tokio::test]
+async fn avatar_cdn_override_and_disable() {
+    // 自定义 CDN（不带尾斜杠，验证归一化）：邮箱头像拼到自定义镜像
+    let app = build_app_with_comment(CommentConfig {
+        avatar_cdn: "https://avatar.example.com".into(),
+        ..CommentConfig::default()
+    })
+    .await;
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/cdn", "comment": "hi", "mail": "t@e.com"})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    // 精确匹配：既验证自定义 CDN，又验证尾斜杠归一化（不出现双斜杠）与真 MD5
+    assert_eq!(
+        body["avatar"].as_str().unwrap(),
+        "https://avatar.example.com/b3aae4075a6e6ae93455d49d77d544a8"
+    );
+
+    // 置空：禁用邮箱头像层，avatar 为 null
+    let app = build_app_with_comment(CommentConfig {
+        avatar_cdn: String::new(),
+        ..CommentConfig::default()
+    })
+    .await;
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/cdn", "comment": "hi", "mail": "t@e.com"})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(body["avatar"].is_null());
+}
+
+#[tokio::test]
 async fn comment_list_isolation_and_status() {
     let app = build_app(None, false).await;
 
@@ -436,7 +494,7 @@ async fn comment_list_isolation_and_status() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["count"], 1);
-    assert_eq!(body["results"][0]["comment"], "A1");
+    assert_eq!(body["roots"][0]["comment"], "A1");
 
     let (_, body) = call(
         &app,
@@ -444,7 +502,7 @@ async fn comment_list_isolation_and_status() {
     )
     .await;
     assert_eq!(body["count"], 1);
-    assert_eq!(body["results"][0]["comment"], "B1");
+    assert_eq!(body["roots"][0]["comment"], "B1");
 
     let app = build_app_with_comment(CommentConfig {
         moderation: true,
@@ -913,21 +971,602 @@ async fn comment_honeypot() {
 }
 
 #[tokio::test]
-async fn admin_credentials_verify() {
-    let creds = AdminCredentials::new("root", "rootpass123").expect("build credentials");
-    assert_eq!(creds.username, "root");
+async fn admin_password_hash_roundtrip() {
+    let hash = app::auth::admin::hash_password("rootpass123").expect("hash");
+    assert!(hash.starts_with("$argon2"), "must store argon2 PHC string");
     assert!(
-        creds.verify("root", "rootpass123").expect("verify ok"),
-        "correct credentials must pass"
+        app::auth::admin::verify_password("rootpass123", &hash).expect("verify ok"),
+        "correct password must pass"
     );
     assert!(
-        !creds.verify("root", "otherpass999").expect("verify bad pw"),
+        !app::auth::admin::verify_password("otherpass999", &hash).expect("verify bad"),
         "wrong password must fail"
     );
+}
+
+#[tokio::test]
+async fn admin_seed_only_applies_when_table_empty() {
+    use app::auth::admin::{seed_admin, verify_login};
+
+    let mut opt = ConnectOptions::new("sqlite::memory:");
+    opt.max_connections(1);
+    let db = Database::connect(opt).await.expect("connect sqlite memory");
+    Migrator::up(&db, None).await.expect("run migrations");
+
+    // 空表 + 缺 env -> 报错（启动失败语义）
     assert!(
-        !creds
-            .verify("nobody", "rootpass123")
-            .expect("verify bad user"),
-        "wrong username must fail"
+        seed_admin(&db, &InitialAdminConfig::default())
+            .await
+            .is_err()
+    );
+    // 空表 + 空密码 -> 报错
+    let empty_pw = InitialAdminConfig {
+        username: Some("admin".into()),
+        password: Some(String::new()),
+    };
+    assert!(seed_admin(&db, &empty_pw).await.is_err());
+
+    // 首次种子生效
+    let cfg_a = InitialAdminConfig {
+        username: Some("admin".into()),
+        password: Some("adminpass123".into()),
+    };
+    assert!(seed_admin(&db, &cfg_a).await.expect("first seed"));
+
+    // 已有记录后 env 被完全忽略：第二次种子不写库
+    let cfg_b = InitialAdminConfig {
+        username: Some("root".into()),
+        password: Some("rootpass999".into()),
+    };
+    assert!(!seed_admin(&db, &cfg_b).await.expect("second seed"));
+
+    // 以库为准：env B 的凭据无效，库中的凭据有效
+    assert!(
+        verify_login(&db, "admin", "adminpass123")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        verify_login(&db, "root", "rootpass999")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn admin_change_password_flow() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+
+    // 错误当前密码 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/admin/account/password",
+            Some(json!({"current_password": "wrong", "new_password": "newpass456"})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 新密码过短 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/admin/account/password",
+            Some(json!({"current_password": "adminpass123", "new_password": "short"})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 正确改密 -> 200
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/admin/account/password",
+            Some(json!({"current_password": "adminpass123", "new_password": "newpass456"})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // token_version 自增：改密前的 token（含改密所用的那个）立即失效
+    let (status, _) = call(
+        &app,
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "old token must be revoked"
+    );
+
+    // 旧密码登录 -> 401；新密码登录 -> 200 且新 token 可用
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/auth/login",
+            Some(json!({ "username": "admin", "password": "adminpass123" })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "old password must fail");
+
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/auth/login",
+            Some(json!({ "username": "admin", "password": "newpass456" })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let new_token = body["access_token"].as_str().unwrap().to_owned();
+    let (status, _) = call(
+        &app,
+        json_request("GET", "/api/v1/admin/config", None, Some(&new_token)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "new token must work");
+}
+
+#[tokio::test]
+async fn comment_submit_ignores_client_supplied_avatar() {
+    let app = build_app(None, false).await;
+
+    // M-4：客户端提交的 qq_avatar 必须被忽略，avatar 由服务端按 mail 推导
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/wl", "comment": "hi", "mail": "t@e.com",
+                "qq_avatar": "http://evil.example/x.png"
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        body["avatar"].as_str().unwrap(),
+        "https://gravatar.loli.net/avatar/b3aae4075a6e6ae93455d49d77d544a8",
+        "avatar must be derived from mail, not client-supplied qq_avatar"
+    );
+
+    // 管理端确认 qq_avatar 未被持久化
+    let token = login(&app).await;
+    let (_, body) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/admin/comments?url=%2Fwl",
+            None,
+            Some(&token),
+        ),
+    )
+    .await;
+    assert!(
+        body["items"][0]["qq_avatar"].is_null(),
+        "client-supplied qq_avatar must not be stored"
+    );
+}
+
+#[tokio::test]
+async fn comment_rid_is_server_derived() {
+    let app = build_app(None, false).await;
+
+    // 顶层评论即使带了 rid 也必须被丢弃
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/rid", "comment": "root", "rid": "forged-rid"})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(body["rid"].is_null(), "top-level rid must be discarded");
+    let root_id = body["id"].as_str().unwrap().to_owned();
+
+    // 回复时显式 rid 与父评论推导值不一致 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/rid", "comment": "bad", "pid": root_id, "rid": "other-thread"})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 显式 rid 与推导值一致则放行
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/rid", "comment": "good", "pid": root_id, "rid": root_id})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["rid"], root_id);
+}
+
+#[tokio::test]
+async fn comment_field_length_limits() {
+    let app = build_app(None, false).await;
+
+    // url 256 字符 -> 400；255 字符（上限）-> 201
+    let (status, _) = call(
+        &app,
+        submit_comment_req(&format!("/{}", "u".repeat(255)), "x"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "url over 255 must fail");
+    let (status, _) = call(
+        &app,
+        submit_comment_req(&format!("/{}", "u".repeat(254)), "x"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "url at 255 must pass");
+
+    // nick 65 -> 400；64 -> 201
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/len", "comment": "x", "nick": "n".repeat(65)})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "nick over 64 must fail");
+
+    // mail 129 -> 400（格式合法但超长）
+    let long_mail = format!("{}@e.com", "m".repeat(123));
+    assert!(long_mail.len() == 129);
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/len", "comment": "x", "mail": long_mail})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "mail over 128 must fail");
+
+    // link 256 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({"url": "/len", "comment": "x", "link": format!("https://{}", "l".repeat(248))})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "link over 255 must fail");
+}
+
+#[tokio::test]
+async fn comment_ua_is_truncated_to_column_width() {
+    let app = build_app(None, false).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/comments")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::USER_AGENT, "x".repeat(600))
+        .body(Body::from(
+            json!({"url": "/ua", "comment": "hi"}).to_string(),
+        ))
+        .unwrap();
+    let (status, _) = call(&app, req).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let token = login(&app).await;
+    let (_, body) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/admin/comments?url=%2Fua",
+            None,
+            Some(&token),
+        ),
+    )
+    .await;
+    let ua = body["items"][0]["ua"].as_str().unwrap();
+    assert_eq!(ua.chars().count(), 512, "ua must be truncated to 512 chars");
+}
+
+#[tokio::test]
+async fn import_rejects_oversized_fields() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/admin/comments/import/valine",
+            Some(json!({"results": [
+                {"objectId": "ok1", "comment": "fine", "url": "/imp-len"},
+                {"objectId": "big-nick", "comment": "x", "url": "/imp-len", "nick": "n".repeat(65)},
+                {"objectId": "big-ua", "comment": "x", "url": "/imp-len", "ua": "u".repeat(513)}
+            ]})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["imported"], 1);
+    assert_eq!(body["skipped_invalid"], 2);
+    let errors = body["errors"].as_array().unwrap();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.as_str().unwrap().contains("big-nick: nick")),
+        "error detail should name id and field: {errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.as_str().unwrap().contains("big-ua: ua")),
+        "error detail should name id and field: {errors:?}"
+    );
+}
+
+#[tokio::test]
+async fn login_rate_limit() {
+    let app = build_app(None, false).await;
+
+    // M-1：前 5 次（含错误凭据）都能到达认证逻辑返回 401；第 6 次被限流 429
+    for i in 0..5 {
+        let (status, _) = call(
+            &app,
+            json_request(
+                "POST",
+                "/api/v1/auth/login",
+                Some(json!({ "username": "admin", "password": format!("wrong-{i}") })),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "attempt {i} should reach auth logic"
+        );
+    }
+
+    // 第 6 次即使凭据正确也被限流（计数发生在认证之前）
+    let (status, body) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/auth/login",
+            Some(json!({ "username": "admin", "password": "adminpass123" })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(body["code"], 429);
+}
+
+#[tokio::test]
+async fn comment_threads_pagination() {
+    // 放宽提交限流（本用例连发 14 条，默认 5/分钟会拦截）
+    let app = build_app_with_comment(CommentConfig {
+        rate_limit_per_minute: 1000,
+        ..CommentConfig::default()
+    })
+    .await;
+
+    // 12 个 root；第 1 个 root 下挂 2 条回复
+    let mut first_root = String::new();
+    for i in 0..12 {
+        let (_, body) = call(&app, submit_comment_req("/page", &format!("root-{i}"))).await;
+        if i == 0 {
+            first_root = body["id"].as_str().unwrap().to_owned();
+        }
+    }
+    for j in 0..2 {
+        call(
+            &app,
+            json_request(
+                "POST",
+                "/api/v1/comments",
+                Some(json!({"url": "/page", "comment": format!("r{j}"), "pid": first_root})),
+                None,
+            ),
+        )
+        .await;
+    }
+
+    // 第 1 页：默认 10 楼，root 倒序（最新在前）
+    let (_, body) = call(
+        &app,
+        json_request("GET", "/api/v1/comments?url=%2Fpage", None, None),
+    )
+    .await;
+    assert_eq!(body["count"], 14, "count 含全部回复");
+    assert_eq!(body["root_total"], 12);
+    assert_eq!(body["page"], 1);
+    assert_eq!(body["page_size"], 10, "默认 page_size = 10");
+    assert_eq!(body["roots"].as_array().unwrap().len(), 10);
+    assert_eq!(body["roots"][0]["comment"], "root-11", "root 应倒序");
+    assert_eq!(body["roots"][0]["reply_count"], 0);
+
+    // 第 2 页：剩 2 楼，first_root 在此，带 reply_count 与预览
+    let (_, body) = call(
+        &app,
+        json_request("GET", "/api/v1/comments?url=%2Fpage&page=2", None, None),
+    )
+    .await;
+    let roots = body["roots"].as_array().unwrap();
+    assert_eq!(roots.len(), 2);
+    let thread = roots
+        .iter()
+        .find(|t| t["id"] == first_root)
+        .expect("first_root should be on page 2");
+    assert_eq!(thread["reply_count"], 2);
+    let replies = thread["replies"].as_array().unwrap();
+    assert_eq!(replies.len(), 2);
+    assert_eq!(replies[0]["comment"], "r0", "预览按时间升序");
+
+    // page_size 传 100 被 clamp 到 20
+    let (_, body) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/comments?url=%2Fpage&page_size=100",
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(body["page_size"], 20);
+    assert_eq!(body["roots"].as_array().unwrap().len(), 12);
+}
+
+#[tokio::test]
+async fn comment_thread_preview_and_expand() {
+    let app = build_app_with_comment(CommentConfig {
+        rate_limit_per_minute: 1000,
+        ..CommentConfig::default()
+    })
+    .await;
+
+    let (_, body) = call(&app, submit_comment_req("/exp", "root")).await;
+    let root_id = body["id"].as_str().unwrap().to_owned();
+
+    // 7 条回复，混合平挂 root 与链式嵌套
+    let mut prev = root_id.clone();
+    for i in 0..7 {
+        let pid = if i % 2 == 0 {
+            root_id.clone()
+        } else {
+            prev.clone()
+        };
+        let (_, body) = call(
+            &app,
+            json_request(
+                "POST",
+                "/api/v1/comments",
+                Some(json!({"url": "/exp", "comment": format!("r{i}"), "pid": pid})),
+                None,
+            ),
+        )
+        .await;
+        prev = body["id"].as_str().unwrap().to_owned();
+    }
+
+    // 楼预览：reply_count=7，replies 仅最早 5 条
+    let (_, body) = call(
+        &app,
+        json_request("GET", "/api/v1/comments?url=%2Fexp", None, None),
+    )
+    .await;
+    let thread = &body["roots"][0];
+    assert_eq!(thread["reply_count"], 7);
+    let preview = thread["replies"].as_array().unwrap();
+    assert_eq!(preview.len(), 5, "预览上限 5 条");
+    assert_eq!(preview[0]["comment"], "r0");
+    assert_eq!(preview[4]["comment"], "r4");
+
+    // 展开：offset=5 拿剩余 2 条
+    let (_, body) = call(
+        &app,
+        json_request(
+            "GET",
+            &format!("/api/v1/comments/replies?url=%2Fexp&rid={root_id}&offset=5"),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(body["total"], 7);
+    let results = body["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0]["comment"], "r5");
+    let a_reply_id = results[0]["id"].as_str().unwrap().to_owned();
+
+    // limit 传 999 被 clamp 到 50（总量 7，全返回）
+    let (_, body) = call(
+        &app,
+        json_request(
+            "GET",
+            &format!("/api/v1/comments/replies?url=%2Fexp&rid={root_id}&limit=999"),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(body["results"].as_array().unwrap().len(), 7);
+
+    // rid 校验：不存在 / 跨 url / 非顶层评论 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/comments/replies?url=%2Fexp&rid=nope",
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &app,
+        json_request(
+            "GET",
+            &format!("/api/v1/comments/replies?url=%2Fother&rid={root_id}"),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &app,
+        json_request(
+            "GET",
+            &format!("/api/v1/comments/replies?url=%2Fexp&rid={a_reply_id}"),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "rid 指向非顶层评论必须 400"
     );
 }

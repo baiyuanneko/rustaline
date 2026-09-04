@@ -1,4 +1,5 @@
-//! JWT 签发与校验。claims: sub = 管理员用户名，jti = 随机 uuid（用于黑名单），exp/iat 为秒级时间戳
+//! JWT 签发与校验。claims: sub = 管理员用户名，jti = 随机 uuid（用于黑名单），
+//! ver = 签发时的 admins.token_version（改密码后自增，旧 token 立即失效），exp/iat 为秒级时间戳
 
 use chrono::Utc;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -11,6 +12,9 @@ pub struct Claims {
     pub sub: String,
     /// token 唯一 id，logout 时写入 Redis 黑名单
     pub jti: String,
+    /// 签发时的 admins.token_version；serde default 兼容旧版无 ver 的 token（视为 0）
+    #[serde(default)]
+    pub ver: i32,
     pub exp: usize,
     pub iat: usize,
 }
@@ -18,6 +22,7 @@ pub struct Claims {
 /// 签发 access token，返回 (token, claims)
 pub fn encode_token(
     username: &str,
+    token_version: i32,
     secret: &str,
     ttl_secs: u64,
 ) -> Result<(String, Claims), jsonwebtoken::errors::Error> {
@@ -25,6 +30,7 @@ pub fn encode_token(
     let claims = Claims {
         sub: username.to_owned(),
         jti: Uuid::new_v4().to_string(),
+        ver: token_version,
         iat: now,
         exp: now + ttl_secs as usize,
     };

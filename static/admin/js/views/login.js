@@ -53,7 +53,7 @@ function buildLoginScreen() {
 
   const hint = el("div", {
     class: "login-hint",
-    text: "账号由服务端环境变量 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD 配置",
+    text: "初始账号由环境变量 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD 在首次启动时写入；改密码请在设置页操作",
   });
   body.appendChild(hint);
   card.appendChild(body);

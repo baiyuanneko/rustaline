@@ -44,11 +44,13 @@ services:
       # 容器内用绝对路径，数据落在挂载卷里
       APP_DATABASE_URL: sqlite:///app/data/bynrust26.db?mode=rwc
       APP_REDIS_URL: redis://redis:6379
-      # 生产环境务必通过 .env / secret 注入，不要提交真实密钥
-      APP_JWT_SECRET: ${APP_JWT_SECRET:-change-me-in-production}
-      # 管理员账号（唯一用户）；密码必须注入，不提供默认值
+      # 生产环境必须通过 .env / secret 注入随机密钥（缺失即拒绝启动），生成：
+      #   openssl rand -base64 48
+      APP_JWT_SECRET: "${APP_JWT_SECRET:?must set APP_JWT_SECRET (generate with: openssl rand -base64 48)}"
+      # 管理员账号（唯一用户）：仅在首次启动、admins 表为空时作为初始种子写入数据库；
+      # 入库后这两个变量被忽略（改密码走管理面板），届时可从 .env 中移除
       APP_INITIAL_ADMIN_USERNAME: ${APP_INITIAL_ADMIN_USERNAME:-admin}
-      APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:?must set APP_INITIAL_ADMIN_PASSWORD}
+      APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:-}
       APP_LOG_LEVEL: info
     volumes:
       - sqlite-data:/app/data

@@ -12,9 +12,14 @@
  * 安全：所有用户输入一律以 textContent / createTextNode 渲染，绝不 innerHTML 拼接；
  *       link 字段严格校验仅允许 http(s):// 前缀，否则降级为纯文本展示。
  *
- * 接口契约（详见 .sisyphus/plans/valine-replacement.md §3.1）：
- *   GET  {server}/api/v1/comments?url=<encoded>  →  { count, results: [Comment] }
- *   POST {server}/api/v1/comments                →  Comment（创建后的）
+ * 接口契约（M-2 楼中楼分页）：
+ *   GET  {server}/api/v1/comments?url=<encoded>&page=N
+ *        → { count, root_total, page, page_size, roots: [Thread] }
+ *        count = 该 url 可见评论总数（含回复）；roots 按时间倒序分页
+ *   GET  {server}/api/v1/comments/replies?url=&rid=<rootId>&offset=&limit=
+ *        → { total, results: [Comment] }（楼内回复，时间升序）
+ *   POST {server}/api/v1/comments → Comment（创建后的）
+ *   Thread = Comment 平铺字段 + { reply_count, replies: [Comment 预览，升序 ≤5 条] }
  *   Comment 字段：{ id, comment, nick, link, avatar, url, pid, rid, inserted_at }
  *
  * 全局只挂 window.Rustaline，不污染其他名字空间。
@@ -31,7 +36,7 @@
     server: '',                                        // 后端基地址，'' = 同源
     url: '',                                           // 文章标识，'' = location.pathname
     placeholder: '说点什么吧… 千万别留下垃圾评论',
-    gravatarCdn: 'https://cravatar.cn/avatar/',        // 头像 CDN，可换 https://gravatar.com/avatar/
+    gravatarCdn: 'https://gravatar.loli.net/avatar/',  // 头像 CDN，可换 https://gravatar.com/avatar/
     lang: {
       loading: '加载中…',
       empty: '这里还没有评论，来抢沙发吧',
@@ -51,6 +56,9 @@
       linkPlaceholder: '网址（可选）',
       commentRequired: '请填写评论内容',
       commentTooLong: '评论内容过长（上限 10000 字）',
+      loadMore: '加载更多评论',
+      viewAllReplies: '查看全部 %d 条回复',
+      continueThread: '继续查看这段对话（%d 条）›',
       errNetwork: '网络错误，请稍后再试',
       errRate: '操作太频繁，请稍后再试',
       errGeneric: '发表失败，请稍后再试'
@@ -349,6 +357,25 @@
 .rs-reply-snip { color: var(--rs-on-surface-variant); font-weight: 500; font-size: 13px; }
 .rs-reply-snip strong { color: var(--rs-on-surface); font-weight: 700; }
 
+/* ---- 楼中楼：楼尾展开 / 深度占位 / 加载更多（M-2） ---- */
+.rs-load-more { text-align: center; padding: 14px 0 4px; }
+.rs-thread__more-wrap, .rs-subtree-toggle-wrap {
+  margin: 2px 0 10px calc(var(--rs-avatar-size) + 14px);
+}
+.rs-thread__more, .rs-subtree-toggle {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rs-primary);
+}
+.rs-thread__more:hover, .rs-subtree-toggle:hover { text-decoration: underline; }
+.rs-thread__more:disabled { opacity: .55; cursor: default; text-decoration: none; }
+
 /* ---- 状态 / 骨架 ---- */
 .rs-status {
   padding: 32px 16px;
@@ -423,6 +450,7 @@
   .rs-comment__children { padding-left: calc(var(--rs-avatar-size) + 6px); }
   .rs-comment__children::before { left: calc((var(--rs-avatar-size) + 6px) / 2); }
   .rs-comment__children > .rs-comment::before { left: calc(-1 * ((var(--rs-avatar-size) + 6px) / 2)); }
+  .rs-thread__more-wrap, .rs-subtree-toggle-wrap { margin-left: calc(var(--rs-avatar-size) + 6px); }
 }
 
 `;
@@ -637,10 +665,17 @@
     this.state = {
       loading: true,
       error: null,
-      comments: [],        // 服务端返回的扁平列表
-      count: 0,
+      threads: [],         // 楼列表：[{root, reply_count, replies:[预览或全量]}]
+      count: 0,            // 该 url 可见评论总数（含回复，供「N 条评论」文案）
+      rootTotal: 0,        // 楼总数（分页依据）
+      page: 0,             // 已加载到的页码
+      pageSize: 10,
+      loadingMore: false,
       replyTo: null,       // 当前回复目标 comment 对象；null = 顶级
       submitting: false,
+      expandedSubtrees: {}, // 深度占位条已就地展开的节点 id
+      expandedThreads: {},  // 已拉取全量回复的楼 root id
+      loadingReplies: {},   // 正在拉全量的楼 root id
       optimisticIds: new Set()  // 乐观插入过的评论 id（用于在后台刷新失败时识别）
     };
 
@@ -668,34 +703,130 @@
     return this.opts.server + '/api/v1/comments';
   };
 
-  Rustaline.prototype._fetchComments = function () {
+  Rustaline.prototype._fetchComments = function (page, append) {
     var self = this;
-    this.state.loading = true;
-    this.state.error = null;
+    page = page || 1;
+    if (append) {
+      if (this.state.loadingMore) return;
+      this.state.loadingMore = true;
+    } else {
+      this.state.loading = true;
+      this.state.error = null;
+    }
     this._render();
 
-    var url = this._apiBase() + '?url=' + encodeURIComponent(this.opts.url);
+    var url = this._apiBase() + '?url=' + encodeURIComponent(this.opts.url) + '&page=' + page;
     fetch(url, { headers: { 'Accept': 'application/json' } })
       .then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       })
       .then(function (data) {
-        // 兼容 {count, results:[]} 与裸数组 [] 两种形态
-        var list = data && Array.isArray(data.results) ? data.results
-                 : Array.isArray(data) ? data
-                 : (data && Array.isArray(data.items) ? data.items : []);
-        var count = (data && typeof data.count === 'number') ? data.count
-                  : (data && typeof data.total === 'number') ? data.total
-                  : list.length;
-        self.state.comments = list.map(normalizeComment);
-        self.state.count = count;
+        var fetched = data && Array.isArray(data.roots) ? data.roots.map(normalizeThread) : [];
+        if (append) {
+          self.state.threads = self.state.threads.concat(fetched);
+        } else {
+          // 整体替换前保留已展开楼的本地全量回复（服务端只回预览）
+          fetched.forEach(function (t) { preserveExpanded(self.state, t); });
+          self.state.threads = fetched;
+        }
+        self.state.count = (data && typeof data.count === 'number') ? data.count : 0;
+        self.state.rootTotal = (data && typeof data.root_total === 'number') ? data.root_total : 0;
+        self.state.page = (data && typeof data.page === 'number') ? data.page : page;
+        self.state.pageSize = (data && typeof data.page_size === 'number') ? data.page_size : 10;
         self.state.loading = false;
+        self.state.loadingMore = false;
         self._render();
       })
       .catch(function (err) {
+        self.state.loadingMore = false;
+        if (append) {
+          // 「加载更多」失败不打断已展示内容，仅恢复按钮态
+          self._render();
+          return;
+        }
         self.state.loading = false;
         self.state.error = (err && err.message) || String(err);
+        self._render();
+      });
+  };
+
+  /** 加载下一页楼（append 模式） */
+  Rustaline.prototype._loadMore = function () {
+    this._fetchComments(this.state.page + 1, true);
+  };
+
+  /** 提交成功后的后台对齐：串行重拉已加载的 1..page 页并整体替换（静默失败） */
+  Rustaline.prototype._refreshLoadedPages = function () {
+    var self = this;
+    var pages = Math.max(1, this.state.page);
+    var collected = [];
+    var lastData = null;
+    var chain = Promise.resolve();
+    for (var p = 1; p <= pages; p++) {
+      (function (pnum) {
+        chain = chain.then(function () {
+          var url = self._apiBase() + '?url=' + encodeURIComponent(self.opts.url) + '&page=' + pnum;
+          return fetch(url, { headers: { 'Accept': 'application/json' } })
+            .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+            .then(function (data) {
+              lastData = data;
+              var threads = (data && Array.isArray(data.roots)) ? data.roots.map(normalizeThread) : [];
+              threads.forEach(function (t) { preserveExpanded(self.state, t); });
+              collected = collected.concat(threads);
+            });
+        });
+      })(p);
+    }
+    chain.then(function () {
+      self.state.threads = collected;
+      if (lastData) {
+        if (typeof lastData.count === 'number') self.state.count = lastData.count;
+        if (typeof lastData.root_total === 'number') self.state.rootTotal = lastData.root_total;
+      }
+      self._render();
+    }).catch(function () { /* 静默失败：保留当前展示与乐观插入 */ });
+  };
+
+  /** 拉取某楼全量回复（分批，每批 ≤50；防御上限 20 批防脏数据死循环） */
+  Rustaline.prototype._expandThread = function (rootId) {
+    var self = this;
+    if (this.state.loadingReplies[rootId]) return;
+    this.state.loadingReplies[rootId] = true;
+    this._render();
+
+    var collected = [];
+    var offset = 0;
+    var total = Infinity;
+    var batchesLeft = 20;
+
+    function batch() {
+      if (collected.length >= total || batchesLeft-- <= 0) return Promise.resolve();
+      var url = self._apiBase() + '/replies?url=' + encodeURIComponent(self.opts.url) +
+        '&rid=' + encodeURIComponent(rootId) + '&offset=' + offset + '&limit=50';
+      return fetch(url, { headers: { 'Accept': 'application/json' } })
+        .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+        .then(function (data) {
+          total = (data && typeof data.total === 'number') ? data.total : 0;
+          var list = data && Array.isArray(data.results) ? data.results.map(normalizeComment) : [];
+          collected = collected.concat(list);
+          offset += list.length;
+          if (list.length === 0) return; // 防空转
+          return batch();
+        });
+    }
+
+    batch().then(function () {
+      // 现查（可能刚被 refresh 整体替换过 threads 数组）
+      var thread = findThread(self.state.threads, rootId);
+      if (thread) {
+        thread.replies = collected;
+        thread.reply_count = total === Infinity ? collected.length : total;
+        self.state.expandedThreads[rootId] = true;
+      }
+    }).catch(function () { /* 静默失败：保留预览 */ })
+      .then(function () {
+        delete self.state.loadingReplies[rootId];
         self._render();
       });
   };
@@ -714,6 +845,32 @@
     };
   }
 
+  /** 服务端 Thread：root 字段与 reply_count/replies 同级平铺 */
+  function normalizeThread(t) {
+    return {
+      root: normalizeComment(t),
+      reply_count: typeof t.reply_count === 'number' ? t.reply_count : 0,
+      replies: Array.isArray(t.replies) ? t.replies.map(normalizeComment) : []
+    };
+  }
+
+  function findThread(threads, rootId) {
+    for (var i = 0; i < threads.length; i++) {
+      if (threads[i].root.id === rootId) return threads[i];
+    }
+    return null;
+  }
+
+  /** 刷新替换时，已拉全量的楼保留本地 replies（服务端只给 ≤5 条预览） */
+  function preserveExpanded(state, thread) {
+    if (!state.expandedThreads[thread.root.id]) return;
+    var local = findThread(state.threads, thread.root.id);
+    if (local && local.replies.length >= thread.replies.length) {
+      thread.replies = local.replies;
+      if (local.reply_count > thread.reply_count) thread.reply_count = local.reply_count;
+    }
+  }
+
   // ---- 渲染层 ----
 
   Rustaline.prototype._render = function () {
@@ -723,11 +880,15 @@
     root.setAttribute('data-rs-state', this.state.loading ? 'loading'
       : this.state.error ? 'error' : 'ready');
 
-    // 校验 replyTo 仍在列表中：刷新后若目标评论已不在（被删/被审/换页），丢弃以免表单消失
+    // 校验 replyTo 仍在已加载的楼中：刷新后若目标评论已不在（被删/被审/换页），丢弃以免表单消失
     if (this.state.replyTo) {
       var stillThere = false;
-      for (var i = 0; i < this.state.comments.length; i++) {
-        if (this.state.comments[i].id === this.state.replyTo.id) { stillThere = true; break; }
+      for (var i = 0; i < this.state.threads.length && !stillThere; i++) {
+        var t = this.state.threads[i];
+        if (t.root.id === this.state.replyTo.id) { stillThere = true; break; }
+        for (var j = 0; j < t.replies.length; j++) {
+          if (t.replies[j].id === this.state.replyTo.id) { stillThere = true; break; }
+        }
       }
       if (!stillThere) this.state.replyTo = null;
     }
@@ -751,7 +912,25 @@
       root.appendChild(this._buildError());
     } else {
       root.appendChild(this._buildList());
+      // 底部「加载更多评论」：已加载楼数 < 楼总数时显示
+      if (this.state.threads.length > 0 &&
+          this.state.page * this.state.pageSize < this.state.rootTotal) {
+        root.appendChild(this._buildLoadMore());
+      }
     }
+  };
+
+  Rustaline.prototype._buildLoadMore = function () {
+    var self = this;
+    var lang = this.opts.lang;
+    return h('div', { class: 'rs-load-more' },
+      h('button', {
+        type: 'button', class: 'rs-btn rs-btn--ghost',
+        text: this.state.loadingMore ? lang.loading : lang.loadMore,
+        disabled: !!this.state.loadingMore,
+        onclick: function () { self._loadMore(); }
+      })
+    );
   };
 
   Rustaline.prototype._buildForm = function () {
@@ -883,63 +1062,92 @@
     );
   };
 
-  /** 由扁平列表构造根→子树，返回根评论数组（每项附带 children 数组） */
-  Rustaline.prototype._buildTree = function () {
-    var all = this.state.comments;
+  /** 楼内建树：replies 按 pid 挂到对应节点；pid 不在本楼（预览截断/脏数据）挂楼根。
+   *  从 root DFS 剪枝，环上的节点整体不可达被丢弃（防环）。 */
+  function buildReplyTree(thread) {
     var byId = Object.create(null);
-    var roots = [];
-
-    // 第一遍：构造节点
-    for (var i = 0; i < all.length; i++) {
-      var c = all[i];
-      byId[c.id] = { node: c, children: [] };
+    var rootEntry = { node: thread.root, children: [] };
+    byId[thread.root.id] = rootEntry;
+    var i, c, entry;
+    for (i = 0; i < thread.replies.length; i++) {
+      c = thread.replies[i];
+      if (!byId[c.id]) byId[c.id] = { node: c, children: [] };
     }
-    // 第二遍：挂载子节点
-    for (var j = 0; j < all.length; j++) {
-      var c2 = all[j];
-      if (c2.pid && byId[c2.pid]) {
-        byId[c2.pid].children.push(byId[c2.id]);
+    for (i = 0; i < thread.replies.length; i++) {
+      c = thread.replies[i];
+      entry = byId[c.id];
+      if (c.pid && byId[c.pid] && c.pid !== c.id) {
+        byId[c.pid].children.push(entry);
       } else {
-        roots.push(byId[c2.id]);
+        rootEntry.children.push(entry);
       }
     }
-    // 服务端按 inserted_at 升序，扁平已天然有序；保险起见再排一次
-    roots.sort(byInsertedAsc);
-    for (var k in byId) {
-      if (Object.prototype.hasOwnProperty.call(byId, k)) {
-        byId[k].children.sort(byInsertedAsc);
-      }
-    }
-    return roots;
-  };
+    // 防环剪枝：只保留 root 可达的节点
+    var reachable = Object.create(null);
+    (function mark(e) {
+      if (reachable[e.node.id]) return;
+      reachable[e.node.id] = true;
+      for (var k = 0; k < e.children.length; k++) mark(e.children[k]);
+    })(rootEntry);
+    (function prune(e) {
+      e.children = e.children.filter(function (ch) { return reachable[ch.node.id]; });
+      for (var k = 0; k < e.children.length; k++) prune(e.children[k]);
+    })(rootEntry);
+    return rootEntry;
+  }
 
-  function byInsertedAsc(a, b) {
-    var ta = a.node.inserted_at ? Date.parse(a.node.inserted_at) : 0;
-    var tb = b.node.inserted_at ? Date.parse(b.node.inserted_at) : 0;
-    if (isNaN(ta)) ta = 0;
-    if (isNaN(tb)) tb = 0;
-    return ta - tb;
+  /** 子树节点总数（含自身之外的 descendants），供深度占位条文案计数 */
+  function subtreeSize(entry) {
+    var n = 0;
+    for (var i = 0; i < entry.children.length; i++) {
+      n += 1 + subtreeSize(entry.children[i]);
+    }
+    return n;
   }
 
   Rustaline.prototype._buildList = function () {
-    var roots = this._buildTree();
-    if (roots.length === 0) return this._buildEmpty();
-
-    // 预建 id → nick 映射，用于回复时 @ 被回复者
-    var nickOf = Object.create(null);
-    for (var i = 0; i < this.state.comments.length; i++) {
-      var c = this.state.comments[i];
-      nickOf[c.id] = c.nick;
-    }
+    if (this.state.threads.length === 0) return this._buildEmpty();
 
     var ul = h('ul', { class: 'rs-list' });
-    for (var r = 0; r < roots.length; r++) {
-      ul.appendChild(this._renderCommentNode(roots[r], null, nickOf));
+    for (var i = 0; i < this.state.threads.length; i++) {
+      ul.appendChild(this._renderThread(this.state.threads[i]));
     }
     return ul;
   };
 
-  Rustaline.prototype._renderCommentNode = function (entry, parentEntry, nickOf) {
+  /** 渲染一楼：root 评论 + 楼内子树 + （回复未拉全时）楼尾「查看全部 N 条回复」 */
+  Rustaline.prototype._renderThread = function (thread) {
+    var self = this;
+    var lang = this.opts.lang;
+
+    // 楼内 id → nick 映射，用于跨层回复的 @ 展示
+    var nickOf = Object.create(null);
+    nickOf[thread.root.id] = thread.root.nick;
+    for (var i = 0; i < thread.replies.length; i++) {
+      nickOf[thread.replies[i].id] = thread.replies[i].nick;
+    }
+
+    var li = this._renderCommentNode(buildReplyTree(thread), null, nickOf, 0);
+    li.classList.add('rs-thread');
+
+    if (thread.reply_count > thread.replies.length) {
+      var loading = !!this.state.loadingReplies[thread.root.id];
+      li.appendChild(h('div', { class: 'rs-thread__more-wrap' },
+        h('button', {
+          type: 'button', class: 'rs-thread__more',
+          text: loading ? lang.loading : lang.viewAllReplies.replace('%d', thread.reply_count),
+          disabled: loading,
+          onclick: function () { self._expandThread(thread.root.id); }
+        })
+      ));
+    }
+    return li;
+  };
+
+  // 楼内嵌套渲染上限：root=0，第 4 层（depth 3 节点的 children）折叠为占位条
+  var MAX_DEPTH = 3;
+
+  Rustaline.prototype._renderCommentNode = function (entry, parentEntry, nickOf, depth) {
     var self = this;
     var c = entry.node;
     var server = this.opts.server;
@@ -1015,13 +1223,27 @@
 
     var li = h('li', { class: 'rs-comment', 'data-id': c.id }, main);
 
-    // 子评论
+    // 子评论：超过 MAX_DEPTH 层折叠为「继续查看这段对话」占位条（就地展开，零请求）；
+    // 已被用户展开的子树（expandedSubtrees）不受深度限制
     if (entry.children.length > 0) {
-      var childUl = h('ul', { class: 'rs-comment__children' });
-      for (var i = 0; i < entry.children.length; i++) {
-        childUl.appendChild(this._renderCommentNode(entry.children[i], entry, nickOf));
+      if (depth >= MAX_DEPTH && !this.state.expandedSubtrees[c.id]) {
+        li.appendChild(h('div', { class: 'rs-subtree-toggle-wrap' },
+          h('button', {
+            type: 'button', class: 'rs-subtree-toggle',
+            text: this.opts.lang.continueThread.replace('%d', subtreeSize(entry)),
+            onclick: function () {
+              self.state.expandedSubtrees[c.id] = true;
+              self._render();
+            }
+          })
+        ));
+      } else {
+        var childUl = h('ul', { class: 'rs-comment__children' });
+        for (var i = 0; i < entry.children.length; i++) {
+          childUl.appendChild(this._renderCommentNode(entry.children[i], entry, nickOf, depth + 1));
+        }
+        li.appendChild(childUl);
       }
-      li.appendChild(childUl);
     }
 
     // 若此评论是当前回复目标，把表单挂到它下方
@@ -1078,7 +1300,7 @@
       body.rid = replyTarget.rid || replyTarget.id;
     }
 
-    // 乐观插入：临时构造一个本地评论对象追加到 state.comments，
+    // 乐观插入：临时构造一个本地评论对象（顶层=新楼头插，回复=楼尾追加），
     // 服务端返回后用真实数据替换；后台刷新失败则保留乐观插入（避免用户输入丢失感）。
     var optimistic = {
       id: '__optimistic_' + (++OPTIMISTIC_SEQ),
@@ -1096,8 +1318,22 @@
     var optimisticInserted = false;
     function rollbackOptimistic() {
       if (!optimisticInserted) return;
-      var idx = self.state.comments.indexOf(optimistic);
-      if (idx >= 0) self.state.comments.splice(idx, 1);
+      if (!replyTarget) {
+        for (var i = 0; i < self.state.threads.length; i++) {
+          if (self.state.threads[i].root === optimistic) {
+            self.state.threads.splice(i, 1);
+            break;
+          }
+        }
+        self.state.rootTotal = Math.max(0, self.state.rootTotal - 1);
+      } else {
+        var thread = findThread(self.state.threads, replyTarget.rid || replyTarget.id);
+        if (thread) {
+          var idx = thread.replies.indexOf(optimistic);
+          if (idx >= 0) thread.replies.splice(idx, 1);
+          thread.reply_count = Math.max(0, thread.reply_count - 1);
+        }
+      }
       self.state.count = Math.max(0, self.state.count - 1);
     }
 
@@ -1115,8 +1351,18 @@
     this.draft.link = link;
     this.state.replyTo = null;
 
-    // 乐观插入并立刻重渲染（让用户看到自己的评论）
-    this.state.comments.push(optimistic);
+    // 乐观插入并立刻重渲染（让用户看到自己的评论）：
+    // 顶层评论 = 新楼插到列表头（root 倒序）；回复 = 追加到所在楼尾部（楼内升序）
+    if (!replyTarget) {
+      this.state.threads.unshift({ root: optimistic, reply_count: 0, replies: [] });
+      this.state.rootTotal += 1;
+    } else {
+      var targetThread = findThread(this.state.threads, replyTarget.rid || replyTarget.id);
+      if (targetThread) {
+        targetThread.replies.push(optimistic);
+        targetThread.reply_count += 1;
+      }
+    }
     this.state.count += 1;
     optimisticInserted = true;
     this.state.submitting = true;
@@ -1150,17 +1396,34 @@
       })
       .then(function (created) {
         var real = normalizeComment(created);
-        // 用真实评论替换乐观占位（保持位置：直接替换数组项）
-        var idx = self.state.comments.indexOf(optimistic);
-        if (idx >= 0) {
-          self.state.comments[idx] = real;
+        // 用真实评论替换乐观占位（保持位置：楼头 / 楼尾）
+        if (!replyTarget) {
+          for (var i = 0; i < self.state.threads.length; i++) {
+            if (self.state.threads[i].root === optimistic) {
+              self.state.threads[i].root = real;
+              break;
+            }
+          }
         } else {
-          self.state.comments.push(real);
+          var thread = findThread(self.state.threads, replyTarget.rid || replyTarget.id);
+          if (thread) {
+            var idx = thread.replies.indexOf(optimistic);
+            if (idx >= 0) thread.replies[idx] = real; else thread.replies.push(real);
+          }
         }
         self.state.submitting = false;
         self._render();
-        // 后台静默刷新对齐（避免 count/排序漂移）
-        setTimeout(function () { self._fetchComments(); }, 400);
+        // 回复场景的可见性对齐：预览窗口只含最早 5 条，新回复（最新）可能不在其中；
+        // 该楼若预览不全或已展开过，立即拉全量让新回复立即可见
+        if (replyTarget) {
+          var rid = real.rid || replyTarget.rid || replyTarget.id;
+          var th = findThread(self.state.threads, rid);
+          if (th && (self.state.expandedThreads[rid] || th.reply_count > th.replies.length)) {
+            self._expandThread(rid);
+          }
+        }
+        // 后台静默刷新已加载页面对齐（避免 count/排序漂移；失败时保留现状）
+        setTimeout(function () { self._refreshLoadedPages(); }, 400);
       })
       .catch(function (err) {
         // 乐观插入回滚（保持表单草稿，让用户能改后重发）
@@ -1206,7 +1469,7 @@
     this.el.innerHTML = '';
     this.el.classList.remove('rs-root');
     this.el.removeAttribute('data-rs-state');
-    this.state.comments = [];
+    this.state.threads = [];
   };
 
   global.Rustaline = Rustaline;

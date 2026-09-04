@@ -11,7 +11,8 @@ pub struct CommentCreateRequest {
     pub link: Option<String>,
     pub pid: Option<String>,
     pub rid: Option<String>,
-    pub qq_avatar: Option<String>,
+    // 白名单到此为止：qq_avatar / ip / ua 等一律由服务端推导或采集，
+    // 客户端即使提交也会被 serde 忽略（M-4 加固）
     #[serde(default)]
     pub hp: Option<String>,
 }
@@ -29,15 +30,54 @@ pub struct CommentPublicResponse {
     pub inserted_at: NaiveDateTime,
 }
 
+/// 一楼（root 评论 + 回复预览）：root 字段平铺自 CommentPublicResponse
 #[derive(Debug, Serialize, ToSchema)]
-pub struct CommentListResponse {
+pub struct CommentThreadRoot {
+    #[serde(flatten)]
+    #[schema(inline)]
+    pub comment: CommentPublicResponse,
+    /// 该楼 approved 回复总数（含未加载的）
+    pub reply_count: u64,
+    /// 回复预览：本楼最早若干条（见 PREVIEW 上限），按 inserted_at 升序
+    pub replies: Vec<CommentPublicResponse>,
+}
+
+/// 公共列表契约（M-2）：按楼分页。count 是该 url 可见评论总数（含全部回复），
+/// root_total 是分页依据；replies 不全时前端调 /comments/replies 展开
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CommentThreadResponse {
     pub count: u64,
+    pub root_total: u64,
+    pub page: u64,
+    pub page_size: u64,
+    pub roots: Vec<CommentThreadRoot>,
+}
+
+/// 楼内回复全量/增量拉取
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CommentRepliesResponse {
+    pub total: u64,
     pub results: Vec<CommentPublicResponse>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CommentListQuery {
     pub url: String,
+    #[serde(default)]
+    pub page: Option<u64>,
+    #[serde(default)]
+    pub page_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct CommentRepliesQuery {
+    pub url: String,
+    /// 楼 root 评论 id
+    pub rid: String,
+    #[serde(default)]
+    pub offset: Option<u64>,
+    #[serde(default)]
+    pub limit: Option<u64>,
 }
 
 /// 父评论摘要：管理列表里把「回复谁」直观展示出来，避免只给一串 pid
@@ -56,6 +96,9 @@ pub struct AdminCommentResponse {
     pub mail: Option<String>,
     pub link: Option<String>,
     pub qq_avatar: Option<String>,
+    /// 服务端推导好的头像 URL（qq_avatar 优先，否则邮箱的真 MD5 → gravatar 镜像），
+    /// 客户端直接使用，不要在前端重复对邮箱做哈希
+    pub avatar: Option<String>,
     pub url: String,
     pub pid: Option<String>,
     pub rid: Option<String>,
@@ -116,6 +159,8 @@ pub struct CommentConfigResponse {
     pub max_length: usize,
     pub rate_limit_per_minute: u32,
     pub default_nick: String,
+    /// 邮箱头像镜像 CDN（空字符串 = 已禁用邮箱头像层）
+    pub avatar_cdn: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

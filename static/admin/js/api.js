@@ -159,3 +159,10 @@ export function fetchStats() {
 export function fetchConfig() {
   return api.get("/admin/config");
 }
+
+export function changePassword(currentPassword, newPassword) {
+  return api.post("/admin/account/password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+}

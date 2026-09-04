@@ -2,11 +2,12 @@ mod auth;
 mod comment;
 mod common;
 
-pub use auth::{LoginRequest, LoginResponse};
+pub use auth::{ChangePasswordRequest, LoginRequest, LoginResponse};
 pub use comment::{
     AdminCommentListResponse, AdminCommentParent, AdminCommentQuery, AdminCommentResponse,
     AdminConfigResponse, CommentConfigResponse, CommentCreateRequest, CommentListQuery,
-    CommentListResponse, CommentPublicResponse, CommentStatsResponse, CommentStatusUpdate,
-    UrlCount, ValineImportItem, ValineImportReport, ValineImportRequest,
+    CommentPublicResponse, CommentRepliesQuery, CommentRepliesResponse, CommentStatsResponse,
+    CommentStatusUpdate, CommentThreadResponse, CommentThreadRoot, UrlCount, ValineImportItem,
+    ValineImportReport, ValineImportRequest,
 };
 pub use common::{ErrorResponse, HealthResponse, MessageResponse};

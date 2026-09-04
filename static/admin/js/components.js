@@ -157,9 +157,11 @@ export function badge(status) {
 // ---- Avatar ----
 export function avatar(item) {
   const wrap = el("mdui-avatar", { class: "avatar" });
+  // avatar 字段由服务端用真 MD5 推导（qq_avatar 优先），客户端不再对邮箱自行哈希；
+  // d=404 让未注册 gravatar 的邮箱落到 onerror 首字母兜底
   const src =
     (item && item.qq_avatar) ||
-    (item && item.mail ? `https://cravatar.cn/avatar/${md5Like(item.mail.trim().toLowerCase())}?d=404&s=64` : "");
+    (item && item.avatar ? `${item.avatar}?d=404&s=64` : "");
   const fallback = () => {
     wrap.replaceChildren();
     wrap.textContent = initial(item && item.nick);
@@ -177,21 +179,6 @@ export function avatar(item) {
     fallback();
   }
   return wrap;
-}
-
-// 零依赖约束下的简易 hash，配合 cravatar d=404 + onerror 首字母兜底。
-function md5Like(str) {
-  let h1 = 0xdeadbeef ^ 0;
-  let h2 = 0x41c6ce57 ^ 0;
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const hex = (n) => (n >>> 0).toString(16).padStart(8, "0");
-  return hex(h2) + hex(h1);
 }
 
 function initial(nick) {

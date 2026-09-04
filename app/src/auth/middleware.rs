@@ -1,10 +1,10 @@
-//! axum extractor `AuthUser`：校验 Bearer token → 黑名单检查 → 注入用户身份
+//! axum extractor `AuthUser`：校验 Bearer token → 黑名单检查 → 查库比对 token_version → 注入用户身份
 
 use axum::extract::FromRequestParts;
 use axum::http::header;
 use axum::http::request::Parts;
 
-use crate::auth::{blacklist, jwt};
+use crate::auth::{admin, blacklist, jwt};
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -45,6 +45,17 @@ impl FromRequestParts<AppState> for AuthUser {
             if blacklist::is_blacklisted(&mut conn, &claims.jti).await? {
                 return Err(AppError::Unauthorized("token has been revoked".into()));
             }
+        }
+
+        // 查库校验：账号存在且 token_version 与签发时一致（改密码后旧 token 立即失效）。
+        // 单管理员 + 管理接口低频，每请求一次 DB 查询开销可接受。
+        let account = admin::find_by_username(&state.db, &claims.sub)
+            .await?
+            .ok_or_else(|| AppError::Unauthorized("admin account not found".into()))?;
+        if account.token_version != claims.ver {
+            return Err(AppError::Unauthorized(
+                "token outdated, please login again".into(),
+            ));
         }
 
         Ok(AuthUser {

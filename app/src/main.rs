@@ -1,11 +1,10 @@
-//! 启动流程：加载 config → 初始化 tracing → 连 DB → 跑迁移 → 初始化管理员凭据 → 连 Redis → 构建 router → serve + graceful shutdown
+//! 启动流程：加载 config → 校验 JWT 密钥 → 初始化 tracing → 连 DB → 跑迁移 → 管理员种子 → 连 Redis → 构建 router → serve + graceful shutdown
 
 use std::error::Error;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
-use app::auth::admin::AdminCredentials;
 use app::config::AppConfig;
 use app::middleware::rate_limit::RateLimiter;
 use app::state::AppState;
@@ -19,6 +18,10 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> Result<(), Box<dyn Error>> {
     // 1. 加载配置（内部会先加载 .env）
     let config = AppConfig::load()?;
+
+    // 1.5 JWT 密钥强度校验：弱默认值或过短直接启动失败（放在 load 之外，
+    // 不影响手工构造配置的测试与 migration CLI）
+    app::config::validate_jwt_secret(&config.jwt.secret).map_err(|e| e.to_string())?;
 
     // 2. 初始化日志
     tracing_subscriber::fmt()
@@ -36,8 +39,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("running migrations");
     Migrator::up(&db, None).await?;
 
-    // 4.5 初始化唯一管理员凭据：initial_admin 两个值都必须配置，否则启动失败
-    let admin = build_admin_credentials(&config)?;
+    // 4.5 管理员种子：admins 表为空时按 initial_admin 配置种入唯一管理员；
+    // 已有记录则忽略环境变量（之后改密码走管理面板，见 auth/admin.rs）
+    app::auth::admin::seed_admin(&db, &config.initial_admin).await?;
 
     // 5. 连接 Redis。黑名单启用时 Redis 是强依赖：连不上直接启动失败
     let redis = connect_redis(&config).await?;
@@ -47,7 +51,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         redis,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
-        admin,
+        login_rate_limiter: RateLimiter::new(),
     };
 
     // 6. 构建路由并启动服务
@@ -68,21 +72,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tracing::info!("shutdown complete");
     Ok(())
-}
-
-/// 构建唯一管理员凭据：APP_INITIAL_ADMIN_USERNAME 与 APP_INITIAL_ADMIN_PASSWORD 必须同时设置，
-/// 缺一或全缺直接启动失败（无管理员则管理功能不可用）。密码只以 argon2 哈希形式存内存，绝不写日志
-fn build_admin_credentials(config: &AppConfig) -> Result<AdminCredentials, Box<dyn Error>> {
-    let init = &config.initial_admin;
-    match (&init.username, &init.password) {
-        (Some(username), Some(password)) if !username.trim().is_empty() && !password.is_empty() => {
-            Ok(AdminCredentials::new(username, password)?)
-        }
-        _ => Err(
-            "管理员账号未配置：必须同时设置 APP_INITIAL_ADMIN_USERNAME 与 APP_INITIAL_ADMIN_PASSWORD"
-                .into(),
-        ),
-    }
 }
 
 /// 黑名单启用时连不上 Redis 直接报错；未启用时降级为 None（仅日志告警）

@@ -40,7 +40,7 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 - Swagger UI: http://localhost:8080/swagger-ui/
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
 - 评论演示页: http://localhost:8080/
-- 管理面板: http://localhost:8080/admin/（账号由 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 环境变量配置）
+- 管理面板: http://localhost:8080/admin/（首次启动时由 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 种入数据库，之后可在设置页改密码）
 - 脚手架示例页: http://localhost:8080/scaffold-demo.html
 - 健康检查: `curl http://localhost:8080/health`
 
@@ -64,14 +64,15 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 </script>
 ```
 
-SDK 零依赖单文件：楼中楼渲染、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾、全量 textContent 防 XSS、深浅色自适应，CSS 变量（`--rs-*`）可定制。
+SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回复预览 + 按需展开）、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾、全量 textContent 防 XSS、深浅色自适应，CSS 变量（`--rs-*`）可定制。
 
 ### 公共接口（匿名，无需登录）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/comments?url=<文章URL>` | 该文章下全部 approved 评论（扁平含 pid/rid，前端组树） |
-| POST | `/api/v1/comments` | 提交评论 `{ url, comment, nick?, mail?, link?, pid?, rid? }`；ip/ua 服务端采集，限流 429 |
+| GET | `/api/v1/comments?url=<文章URL>&page=N&page_size=M` | 按楼分页：`{ count, root_total, page, page_size, roots }`；root（顶层评论）倒序分页（默认 10、上限 20/页），每楼带 `reply_count` 与最早 5 条 `replies` 预览；`count` 为该 url 可见评论总数（含全部回复） |
+| GET | `/api/v1/comments/replies?url=<文章URL>&rid=<楼rootId>&offset=&limit=` | 楼内回复展开：`{ total, results }`，时间升序（limit 上限 50）；rid 须指向同 url 的顶层评论，否则 400 |
+| POST | `/api/v1/comments` | 提交评论 `{ url, comment, nick?, mail?, link?, pid?, rid? }`；白名单之外字段（如 qq_avatar）一律忽略，rid 由服务端按父评论推导（伪造或不一致 400）；ip/ua 服务端采集（UA 截断 512 字符），字段长度对齐列宽，限流 429 |
 
 ### 管理接口（需管理员 JWT）
 
@@ -83,10 +84,11 @@ SDK 零依赖单文件：楼中楼渲染、回复表单、头像推导（QQ 头�
 | POST | `/api/v1/admin/comments/import/valine` | 导入 LeanCloud 导出 JSON（单批 ≤1000 条，按 objectId 幂等） |
 | GET | `/api/v1/admin/comments/stats` | 统计（按状态计数、今日新增、url 排行） |
 | GET | `/api/v1/admin/config` | 当前生效的 comment 配置（只读） |
+| POST | `/api/v1/admin/account/password` | 修改管理员密码 `{ current_password, new_password }`（新密码 ≥8 字符；成功后全部 token 失效需重新登录） |
 
 ### 管理面板
 
-`/admin/` 原生 ES Modules 单页应用，使用本地 vendor 的 mdui 2.1.5 Web Components：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看。
+`/admin/` 原生 ES Modules 单页应用，使用本地 vendor 的 mdui 2.1.5 Web Components：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看、修改密码。
 
 ### 导入 Valine 历史数据
 
@@ -100,13 +102,14 @@ LeanCloud 控制台导出 Comment 表 JSON 后，在管理面板「导入」页�
 | `APP_COMMENT_MAX_LENGTH` | `APP_COMMENT__MAX_LENGTH` | 评论内容最大长度 | `10000` |
 | `APP_COMMENT_RATE_LIMIT_PER_MINUTE` | `APP_COMMENT__RATE_LIMIT_PER_MINUTE` | 单 IP 每分钟最多提交数 | `5` |
 | `APP_COMMENT_DEFAULT_NICK` | `APP_COMMENT__DEFAULT_NICK` | 未填昵称时的默认昵称 | `Anonymous` |
+| `APP_AVATAR_CDN` | `APP_COMMENT__AVATAR_CDN` | 邮箱头像 CDN（gravatar 协议镜像）；置空 = 禁用邮箱头像层 | `https://gravatar.loli.net/avatar/` |
 
 注意：时间字段为 UTC 朴素时间（无时区后缀），前端展示时已按 UTC 解析转本地；跨域部署 SDK 时保持默认放开 CORS 或按需收紧（`routes/mod.rs` 的 CorsLayer）。
 
 示例调用：
 
 ```bash
-# 登录（账号来自 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD）-> 带 token 访问 -> 登出
+# 登录（首次启动时由 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD 种入）-> 带 token 访问 -> 登出
 TOKEN=$(curl -s -X POST localhost:8080/api/v1/auth/login -H 'content-type: application/json' \
   -d '{"username":"admin","password":"please-change-me"}' | jq -r .access_token)
 curl localhost:8080/api/v1/admin/config -H "Authorization: Bearer $TOKEN"
@@ -157,11 +160,11 @@ sea-orm-cli generate entity -o app/src/entities --with-serde none
 | `APP_SERVER_PORT` | `APP_SERVER__PORT` | 监听端口 | `8080` |
 | `APP_DATABASE_URL` | `APP_DATABASE__URL` | 数据库连接串 | `sqlite://./data/bynrust26.db?mode=rwc` |
 | `APP_REDIS_URL` | `APP_REDIS__URL` | Redis 连接串 | `redis://127.0.0.1:6379` |
-| `APP_JWT_SECRET` | `APP_JWT__SECRET` | JWT 签名密钥（生产必改） | `change-me-in-production` |
+| `APP_JWT_SECRET` | `APP_JWT__SECRET` | JWT 签名密钥；启动时校验强度（拒绝已知弱默认值，要求 ≥32 字节，不满足即启动失败）。用 `openssl rand -base64 48` 生成 | 无（占位值会被拒绝） |
 | `APP_JWT_TTL_SECS` | `APP_JWT__TTL_SECS` | token 有效期（秒） | `86400`（24h） |
 | `APP_JWT_BLACKLIST_ENABLED` | `APP_JWT__BLACKLIST_ENABLED` | 是否启用 logout 黑名单；启用时 Redis 不可达则启动失败 | `true` |
-| `APP_INITIAL_ADMIN_USERNAME` | `APP_INITIAL_ADMIN__USERNAME` | 管理员用户名（唯一管理员用户；两项均为必填，缺失时应用启动失败） | 无 |
-| `APP_INITIAL_ADMIN_PASSWORD` | `APP_INITIAL_ADMIN__PASSWORD` | 管理员密码；修改密码 = 改环境变量后重启 | 无 |
+| `APP_INITIAL_ADMIN_USERNAME` | `APP_INITIAL_ADMIN__USERNAME` | 管理员初始用户名（唯一管理员用户）：仅首次启动、admins 表为空时作为种子入库；入库后忽略 | 无 |
+| `APP_INITIAL_ADMIN_PASSWORD` | `APP_INITIAL_ADMIN__PASSWORD` | 管理员初始密码；改密码 = 管理面板「设置」页自助修改（改后全部 token 失效） | 无 |
 | `APP_LOG_LEVEL` | `APP_LOG__LEVEL` | 日志级别（env-filter 语法） | `info` |
 
 ## 测试
@@ -175,6 +178,8 @@ cargo test
 ## Docker
 
 ```bash
+# 需要注入 APP_JWT_SECRET（见 .env.example，缺失即拒绝启动）；
+# 首次启动还需 APP_INITIAL_ADMIN_PASSWORD 作为管理员种子（入库后可移除）
 docker compose up --build     # app + redis，SQLite 数据在 sqlite-data 卷
 ```
 

@@ -13,6 +13,8 @@ url = "sqlite://./data/bynrust26.db?mode=rwc"
 url = "redis://127.0.0.1:6379"
 
 [jwt]
+# 占位弱密钥：未通过 APP_JWT_SECRET 覆盖时启动校验会直接报错退出（H-1 加固）。
+# 生成随机密钥：openssl rand -base64 48
 secret = "change-me-in-production"
 # access token 有效期（秒），默认 24h
 ttl_secs = 86400
@@ -37,7 +39,9 @@ max_length = 10000
 rate_limit_per_minute = 5
 # 未提供昵称时的默认值
 default_nick = "Anonymous"
+# 邮箱头像（gravatar 协议）镜像 CDN；置空字符串则完全禁用邮箱头像层
+avatar_cdn = "https://gravatar.loli.net/avatar/"
 
-# 管理员账号（唯一用户）没有默认值：必须通过环境变量设置，缺失时应用启动失败
-#   APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD
+# 管理员账号（唯一用户）没有默认值：APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD
 # （或嵌套写法 APP_INITIAL_ADMIN__USERNAME / APP_INITIAL_ADMIN__PASSWORD）
+# 仅在首次启动、admins 表为空时作为种子写入数据库；入库后被忽略（改密码走管理面板）

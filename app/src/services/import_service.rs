@@ -10,7 +10,10 @@ use crate::dto::{ValineImportItem, ValineImportReport};
 use crate::entities::comments;
 use crate::error::AppError;
 
-use super::comment_service::normalize_url;
+use super::comment_service::{
+    MAX_ID_LEN, MAX_IP_LEN, MAX_LINK_LEN, MAX_MAIL_LEN, MAX_NICK_LEN, MAX_QQ_AVATAR_LEN,
+    MAX_UA_LEN, MAX_URL_LEN, normalize_url,
+};
 
 const MAX_BATCH: usize = 1000;
 const MAX_ERRORS: usize = 20;
@@ -64,6 +67,30 @@ pub async fn import_valine(
             push_error(&mut errors, "missing url");
             continue;
         };
+
+        // 各字段长度与列宽对齐（M-3）：任一超长，整条判 invalid 并记录明细
+        let too_long = [
+            ("objectId", Some(id.as_str()), MAX_ID_LEN),
+            ("url", Some(url.as_str()), MAX_URL_LEN),
+            ("nick", item.nick.as_deref(), MAX_NICK_LEN),
+            ("mail", item.mail.as_deref(), MAX_MAIL_LEN),
+            ("link", item.link.as_deref(), MAX_LINK_LEN),
+            ("qq_avatar", item.qq_avatar.as_deref(), MAX_QQ_AVATAR_LEN),
+            ("ua", item.ua.as_deref(), MAX_UA_LEN),
+            ("ip", item.ip.as_deref(), MAX_IP_LEN),
+        ]
+        .into_iter()
+        .find_map(|(field, value, max)| match value {
+            Some(v) if v.chars().count() > max => {
+                Some(format!("{id}: {field} exceeds {max} characters"))
+            }
+            _ => None,
+        });
+        if let Some(reason) = too_long {
+            skipped_invalid += 1;
+            push_error(&mut errors, &reason);
+            continue;
+        }
 
         if existing.contains(id) || !seen.insert(id.clone()) {
             skipped_duplicates += 1;

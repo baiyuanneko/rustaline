@@ -8,7 +8,7 @@ import {
   setUnauthorizedHandler,
   fetchStats,
 } from "./api.js";
-import { toastErr } from "./components.js";
+import { toastErr, el, icon } from "./components.js";
 import * as loginView from "./views/login.js";
 import * as dashboardView from "./views/dashboard.js";
 import * as commentsView from "./views/comments.js";
@@ -185,9 +185,102 @@ async function handleLogout() {
   location.hash = LOGIN_ROUTE;
 }
 
+// 外观设置：可选主题色（Material 500 系）+ 明暗模式，偏好由 theme.js 持久化
+const THEME_COLORS = [
+  ["#2196f3", "蓝"],
+  ["#3f51b5", "靛蓝"],
+  ["#9c27b0", "紫"],
+  ["#e91e63", "粉"],
+  ["#f44336", "红"],
+  ["#ff9800", "橙"],
+  ["#4caf50", "绿"],
+  ["#009688", "青"],
+];
+
+function openThemeDialog() {
+  const theme = window.rustalineTheme;
+  if (!theme) return;
+
+  const dialog = el("mdui-dialog", {
+    headline: "外观",
+    closeOnEsc: true,
+    closeOnOverlayClick: true,
+  });
+
+  const body = el("div", { class: "theme-picker" });
+
+  body.appendChild(el("div", { class: "theme-picker__label", text: "主题色" }));
+  const swatchRow = el("div", { class: "theme-picker__colors" });
+  const currentColor = theme.getColor().toLowerCase();
+  const swatchEls = [];
+  for (const [hex, name] of THEME_COLORS) {
+    const sw = el("button", {
+      type: "button",
+      class: "theme-picker__swatch",
+      style: { background: hex, color: "#fff" },
+      attrs: { "aria-label": `主题色 ${name}`, title: name },
+    });
+    if (hex === currentColor) {
+      sw.classList.add("is-active");
+      sw.appendChild(icon("ok"));
+    }
+    sw.addEventListener("click", () => {
+      theme.setColor(hex);
+      for (const s of swatchEls) {
+        s.classList.remove("is-active");
+        s.replaceChildren();
+      }
+      sw.classList.add("is-active");
+      sw.appendChild(icon("ok"));
+    });
+    swatchEls.push(sw);
+    swatchRow.appendChild(sw);
+  }
+  body.appendChild(swatchRow);
+
+  body.appendChild(el("div", {
+    class: "theme-picker__label",
+    style: { marginTop: "14px" },
+    text: "明暗模式",
+  }));
+  const modeGroup = el("mdui-segmented-button-group", {
+    selects: "single",
+    value: theme.getMode(),
+  });
+  for (const [value, label] of [["auto", "跟随系统"], ["light", "浅色"], ["dark", "深色"]]) {
+    modeGroup.appendChild(el("mdui-segmented-button", { value, text: label }));
+  }
+  modeGroup.addEventListener("change", () => {
+    theme.setMode(modeGroup.value);
+  });
+  body.appendChild(modeGroup);
+
+  dialog.appendChild(body);
+  dialog.appendChild(el("mdui-button", {
+    slot: "action",
+    variant: "text",
+    text: "完成",
+    onClick: () => {
+      dialog.open = false;
+    },
+  }));
+
+  dialog.addEventListener("closed", () => dialog.remove(), { once: true });
+  document.body.appendChild(dialog);
+  requestAnimationFrame(() => {
+    dialog.open = true;
+  });
+}
+
+function initThemeToggle() {
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.addEventListener("click", openThemeDialog);
+}
+
 function initTopbar() {
   const btn = document.getElementById("logout-btn");
   if (btn) btn.addEventListener("click", handleLogout);
+  initThemeToggle();
 }
 
 function init() {

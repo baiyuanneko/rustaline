@@ -1,5 +1,5 @@
-import { fetchConfig } from "../api.js";
-import { loadingScreen, emptyState, toastErr, el } from "../components.js";
+import { fetchConfig, changePassword, clearSession } from "../api.js";
+import { loadingScreen, emptyState, toastErr, toastOk, el } from "../components.js";
 
 export async function render(container) {
   container.appendChild(pageHead());
@@ -22,6 +22,9 @@ export async function render(container) {
     );
     if (err.status !== 401) toastErr("加载失败", err.message);
   }
+
+  // 改密卡片与配置加载解耦：配置加载失败也应能改密码
+  container.appendChild(renderPasswordCard());
 }
 
 function pageHead() {
@@ -51,6 +54,7 @@ function renderConfig(cfg) {
     ["max_length", comment.max_length, "评论最大字符数"],
     ["rate_limit_per_minute", comment.rate_limit_per_minute, "单 IP 每分钟最多提交数"],
     ["default_nick", comment.default_nick, "未提供昵称时的默认值"],
+    ["avatar_cdn", comment.avatar_cdn || "(空)", "邮箱头像 CDN（gravatar 协议镜像）；空 = 禁用邮箱头像层"],
     ["version", version, "后端版本号"],
   ];
 
@@ -83,6 +87,127 @@ function formatVal(v) {
   if (typeof v === "number") return String(v);
   if (typeof v === "string") return v;
   return JSON.stringify(v);
+}
+
+function renderPasswordCard() {
+  const card = el("mdui-card", { class: "page-card" });
+  const header = el("div", { class: "page-card__header" });
+  header.appendChild(el("div", { class: "page-card__title", text: "账号安全" }));
+  card.appendChild(header);
+
+  const body = el("div", { class: "page-card__body" });
+  body.appendChild(el("div", {
+    class: "page-subtitle",
+    style: { lineHeight: "1.8", marginBottom: "16px" },
+    text: "修改成功后所有已登录状态（包括当前会话）将立即失效，需要重新登录。",
+  }));
+  body.appendChild(el("mdui-button", {
+    variant: "tonal",
+    text: "修改密码",
+    onClick: openPasswordDialog,
+  }));
+  card.appendChild(body);
+  return card;
+}
+
+function openPasswordDialog() {
+  const dialog = el("mdui-dialog", {
+    headline: "修改密码",
+    closeOnEsc: true,
+    closeOnOverlayClick: true,
+  });
+
+  const form = el("form", {
+    class: "password-form",
+    autocomplete: "off",
+    onsubmit: (e) => e.preventDefault(),
+  });
+
+  const currentField = el("mdui-text-field", {
+    label: "当前密码",
+    type: "password",
+    variant: "filled",
+    autocomplete: "current-password",
+    togglePassword: true,
+    required: true,
+  });
+  const newField = el("mdui-text-field", {
+    label: "新密码（至少 8 个字符）",
+    type: "password",
+    variant: "filled",
+    autocomplete: "new-password",
+    togglePassword: true,
+    required: true,
+  });
+  const confirmField = el("mdui-text-field", {
+    label: "确认新密码",
+    type: "password",
+    variant: "filled",
+    autocomplete: "new-password",
+    togglePassword: true,
+    required: true,
+  });
+
+  const errBox = el("div", { class: "password-form__error", role: "alert", hidden: true });
+  const showErr = (msg) => {
+    errBox.textContent = msg;
+    errBox.hidden = false;
+  };
+
+  form.appendChild(currentField);
+  form.appendChild(newField);
+  form.appendChild(confirmField);
+  form.appendChild(errBox);
+  dialog.appendChild(form);
+
+  const cancelBtn = el("mdui-button", {
+    slot: "action",
+    variant: "text",
+    text: "取消",
+    onClick: () => {
+      dialog.open = false;
+    },
+  });
+  const submitBtn = el("mdui-button", {
+    slot: "action",
+    variant: "filled",
+    text: "更新密码",
+  });
+  dialog.append(cancelBtn, submitBtn);
+
+  dialog.addEventListener("closed", () => dialog.remove(), { once: true });
+  document.body.appendChild(dialog);
+  requestAnimationFrame(() => {
+    dialog.open = true;
+  });
+
+  submitBtn.addEventListener("click", async () => {
+    const current = currentField.value;
+    const next = newField.value;
+    const confirm = confirmField.value;
+    errBox.hidden = true;
+
+    if (!current || !next || !confirm) return showErr("请填写全部字段");
+    if (next.length < 8) return showErr("新密码至少 8 个字符");
+    if (next !== confirm) return showErr("两次输入的新密码不一致");
+
+    submitBtn.loading = true;
+    submitBtn.disabled = true;
+    try {
+      await changePassword(current, next);
+      dialog.open = false;
+      toastOk("密码已更新", "请使用新密码重新登录");
+      // 服务端已自增 token_version，本地会话同步清除后跳登录页
+      clearSession();
+      setTimeout(() => {
+        location.hash = "#/login";
+      }, 600);
+    } catch (err) {
+      showErr(err.message || String(err));
+      submitBtn.loading = false;
+      submitBtn.disabled = false;
+    }
+  });
 }
 
 export function cleanup() {}

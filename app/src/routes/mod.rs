@@ -1,11 +1,13 @@
 use axum::Router;
+use axum::http::{HeaderValue, header};
 use axum::middleware::from_fn_with_state;
 use axum::routing::{get, patch, post};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeader;
 use tower_http::trace::TraceLayer;
 
-use crate::middleware::rate_limit::rate_limit_middleware;
+use crate::middleware::rate_limit::{login_rate_limit_middleware, rate_limit_middleware};
 use crate::state::AppState;
 use crate::{handlers, openapi};
 
@@ -15,8 +17,14 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/api/v1", api_v1(state.clone()))
         .merge(openapi::swagger_ui())
         // 静态文件兜底：显式路由（/health、/api/**、/swagger-ui、/api-doc）优先，
-        // 其余路径落到 static/ 目录（/ -> index.html，/admin/ -> 管理面板）
-        .fallback_service(ServeDir::new(&state.config.static_.dir))
+        // 其余路径落到 static/ 目录（/ -> index.html，/admin/ -> 管理面板）。
+        // no-cache 强制浏览器每次向服务器再验证（未变则 304），避免启发式缓存
+        // 导致 ES Modules 新旧版本混载（如 settings.js 新 / api.js 旧）。
+        .fallback_service(SetResponseHeader::overriding(
+            ServeDir::new(&state.config.static_.dir),
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
@@ -29,9 +37,17 @@ pub fn create_router(state: AppState) -> Router {
 
 fn api_v1(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/auth/login", post(handlers::auth::login))
+        .merge(
+            Router::new()
+                .route("/auth/login", post(handlers::auth::login))
+                .layer(from_fn_with_state(
+                    state.clone(),
+                    login_rate_limit_middleware,
+                )),
+        )
         .route("/auth/logout", post(handlers::auth::logout))
         .route("/comments", get(handlers::comment::list_comments))
+        .route("/comments/replies", get(handlers::comment::list_replies))
         .merge(
             Router::new()
                 .route("/comments", post(handlers::comment::submit_comment))
@@ -57,4 +73,5 @@ fn admin_routes() -> Router<AppState> {
                 .delete(handlers::admin_comment::delete_comment),
         )
         .route("/config", get(handlers::admin_comment::get_admin_config))
+        .route("/account/password", post(handlers::auth::change_password))
 }
