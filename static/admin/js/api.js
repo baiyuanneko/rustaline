@@ -1,6 +1,8 @@
 // API 客户端：fetch 封装、token 注入、401 拦截、错误归一化。
 // 字段契约来源：.sisyphus/plans/valine-replacement.md §3。
 
+import { t } from "./i18n.js";
+
 const BASE = "/api/v1";
 const TOKEN_KEY = "rustaline.admin.token";
 const USERNAME_KEY = "rustaline.admin.username";
@@ -72,13 +74,13 @@ async function request(path, { method = "GET", body, signal, raw = false } = {})
     resp = await fetch(url, { method, headers, body: payload, signal });
   } catch (err) {
     if (err && err.name === "AbortError") throw err;
-    throw new ApiError(0, 0, `网络错误：${err.message || "无法连接服务器"}`);
+    throw new ApiError(0, 0, t("api.networkError", { msg: err.message || t("api.networkDown") }));
   }
 
   if (resp.status === 401) {
     clearSession();
     if (onUnauthorized) onUnauthorized();
-    let errMsg = "未授权或登录已过期";
+    let errMsg = t("api.unauthorized");
     try {
       const errBody = await resp.clone().json();
       if (errBody && errBody.message) errMsg = errBody.message;
@@ -104,7 +106,7 @@ async function request(path, { method = "GET", body, signal, raw = false } = {})
     const code = data && typeof data === "object" && "code" in data ? data.code : resp.status;
     const message =
       (data && typeof data === "object" && "message" in data && data.message) ||
-      `请求失败（HTTP ${resp.status}）`;
+      t("api.requestFailed", { status: resp.status });
     throw new ApiError(resp.status, code, message, data);
   }
 
@@ -130,11 +132,12 @@ export function logout() {
     throw err;
   });
 }
-export function fetchComments({ status = "", url = "", keyword = "", page = 1, page_size = 20 } = {}) {
+export function fetchComments({ status = "", url = "", keyword = "", from = "", page = 1, page_size = 20 } = {}) {
   const qs = new URLSearchParams();
   if (status) qs.set("status", status);
   if (url) qs.set("url", url);
   if (keyword) qs.set("keyword", keyword);
+  if (from) qs.set("from", from);
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
   return api.get(`/admin/comments?${qs.toString()}`);

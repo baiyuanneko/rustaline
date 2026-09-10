@@ -126,6 +126,8 @@ pub struct AdminCommentQuery {
     pub status: Option<String>,
     pub url: Option<String>,
     pub keyword: Option<String>,
+    /// 起始日期（YYYY-MM-DD，UTC 零点起算），仅返回 inserted_at >= 该日期的评论
+    pub from: Option<String>,
     #[serde(default)]
     pub page: Option<u64>,
     #[serde(default)]

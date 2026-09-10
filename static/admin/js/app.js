@@ -8,7 +8,8 @@ import {
   setUnauthorizedHandler,
   fetchStats,
 } from "./api.js";
-import { toastErr, el, icon } from "./components.js";
+import { toastErr, el, icon, attachRipple } from "./components.js";
+import { applyStaticTexts, getLang, setLang, t } from "./i18n.js";
 import * as loginView from "./views/login.js";
 import * as dashboardView from "./views/dashboard.js";
 import * as commentsView from "./views/comments.js";
@@ -36,9 +37,16 @@ function currentHash() {
   return h;
 }
 
+// hash 可能携带查询串（如 #/comments?status=pending，由仪表盘卡片/URL 排行跳入），
+// 路由表只按裸路径匹配；查询串留给 view 的 applyHashQuery 自行解析
+function routeKey(hash) {
+  const q = hash.indexOf("?");
+  return q === -1 ? hash : hash.slice(0, q);
+}
+
 async function renderRoute() {
   const hash = currentHash();
-  const route = ROUTES[hash];
+  const route = ROUTES[routeKey(hash)];
 
   if (!route) {
     location.hash = DEFAULT_ROUTE;
@@ -88,7 +96,7 @@ async function mountView(viewModule) {
     const errBox = document.createElement("div");
     errBox.className = "page-card mdui-card page-card__body";
     errBox.style.color = "rgb(var(--mdui-color-error))";
-    errBox.textContent = `页面加载失败：${err && err.message ? err.message : err}`;
+    errBox.textContent = `${t("common.loadFailed")}: ${err && err.message ? err.message : err}`;
     host.appendChild(errBox);
   }
   if (seq !== renderSeq) return;
@@ -172,6 +180,9 @@ function initSidebar() {
   document.querySelectorAll(".nav__item").forEach((a) => {
     a.addEventListener("click", closeDrawerOnMobile);
   });
+
+  // 底部外链是原生 <a>，无内置涟漪，手动接上
+  document.querySelectorAll(".sidebar__link").forEach((a) => attachRipple(a));
 }
 
 async function handleLogout() {
@@ -181,20 +192,20 @@ async function handleLogout() {
     // 即使后端登出失败，仍清本地
   }
   clearSession();
-  toastErr("已登出", "登录状态已清除");
+  toastErr(t("auth.loggedOut"), t("auth.sessionCleared"));
   location.hash = LOGIN_ROUTE;
 }
 
 // 外观设置：可选主题色（Material 500 系）+ 明暗模式，偏好由 theme.js 持久化
 const THEME_COLORS = [
-  ["#2196f3", "蓝"],
-  ["#3f51b5", "靛蓝"],
-  ["#9c27b0", "紫"],
-  ["#e91e63", "粉"],
-  ["#f44336", "红"],
-  ["#ff9800", "橙"],
-  ["#4caf50", "绿"],
-  ["#009688", "青"],
+  ["#2196f3", "blue"],
+  ["#3f51b5", "indigo"],
+  ["#9c27b0", "purple"],
+  ["#e91e63", "pink"],
+  ["#f44336", "red"],
+  ["#ff9800", "orange"],
+  ["#4caf50", "green"],
+  ["#009688", "teal"],
 ];
 
 function openThemeDialog() {
@@ -202,23 +213,25 @@ function openThemeDialog() {
   if (!theme) return;
 
   const dialog = el("mdui-dialog", {
-    headline: "外观",
+    class: "theme-dialog",
+    headline: t("prefs.title"),
     closeOnEsc: true,
     closeOnOverlayClick: true,
   });
 
   const body = el("div", { class: "theme-picker" });
 
-  body.appendChild(el("div", { class: "theme-picker__label", text: "主题色" }));
+  body.appendChild(el("div", { class: "theme-picker__label", text: t("prefs.themeColor") }));
   const swatchRow = el("div", { class: "theme-picker__colors" });
   const currentColor = theme.getColor().toLowerCase();
   const swatchEls = [];
-  for (const [hex, name] of THEME_COLORS) {
+  for (const [hex, colorKey] of THEME_COLORS) {
+    const name = t(`color.${colorKey}`);
     const sw = el("button", {
       type: "button",
       class: "theme-picker__swatch",
       style: { background: hex, color: "#fff" },
-      attrs: { "aria-label": `主题色 ${name}`, title: name },
+      attrs: { "aria-label": t("prefs.colorLabel", { name }), title: name },
     });
     if (hex === currentColor) {
       sw.classList.add("is-active");
@@ -241,13 +254,13 @@ function openThemeDialog() {
   body.appendChild(el("div", {
     class: "theme-picker__label",
     style: { marginTop: "14px" },
-    text: "明暗模式",
+    text: t("prefs.darkMode"),
   }));
   const modeGroup = el("mdui-segmented-button-group", {
     selects: "single",
     value: theme.getMode(),
   });
-  for (const [value, label] of [["auto", "跟随系统"], ["light", "浅色"], ["dark", "深色"]]) {
+  for (const [value, label] of [["auto", t("prefs.modeAuto")], ["light", t("prefs.modeLight")], ["dark", t("prefs.modeDark")]]) {
     modeGroup.appendChild(el("mdui-segmented-button", { value, text: label }));
   }
   modeGroup.addEventListener("change", () => {
@@ -255,11 +268,33 @@ function openThemeDialog() {
   });
   body.appendChild(modeGroup);
 
+  body.appendChild(el("div", {
+    class: "theme-picker__label",
+    style: { marginTop: "14px" },
+    text: t("prefs.language"),
+  }));
+  const langGroup = el("mdui-segmented-button-group", {
+    selects: "single",
+    value: getLang(),
+  });
+  for (const [value, label] of [["zh-CN", "中文"], ["en", "English"]]) {
+    langGroup.appendChild(el("mdui-segmented-button", { value, text: label }));
+  }
+  langGroup.addEventListener("change", () => {
+    const v = langGroup.value;
+    if (v && v !== getLang()) {
+      setLang(v);
+      // 已渲染视图不做语言响应式，直接刷新整页让全部文案按新语言重建
+      location.reload();
+    }
+  });
+  body.appendChild(langGroup);
+
   dialog.appendChild(body);
   dialog.appendChild(el("mdui-button", {
     slot: "action",
     variant: "text",
-    text: "完成",
+    text: t("common.done"),
     onClick: () => {
       dialog.open = false;
     },
@@ -284,9 +319,11 @@ function initTopbar() {
 }
 
 function init() {
+  applyStaticTexts();
+
   setUnauthorizedHandler(() => {
     if (location.hash !== LOGIN_ROUTE) {
-      toastErr("登录已失效", "请重新登录");
+      toastErr(t("auth.sessionExpired"), t("auth.loginAgain"));
       setTimeout(() => {
         location.hash = LOGIN_ROUTE;
       }, 300);

@@ -1,10 +1,11 @@
 import { fetchConfig, changePassword, clearSession } from "../api.js";
 import { loadingScreen, emptyState, toastErr, toastOk, el } from "../components.js";
+import { t } from "../i18n.js";
 
 export async function render(container) {
   container.appendChild(pageHead());
 
-  const loading = loadingScreen("加载配置…");
+  const loading = loadingScreen(t("settings.loading"));
   container.appendChild(loading);
 
   try {
@@ -15,12 +16,12 @@ export async function render(container) {
     loading.remove();
     container.appendChild(
       emptyState({
-        title: "配置加载失败",
+        title: t("settings.loadFailed"),
         hint: err.message || String(err),
         icon: "warn",
       })
     );
-    if (err.status !== 401) toastErr("加载失败", err.message);
+    if (err.status !== 401) toastErr(t("common.loadFailed"), err.message);
   }
 
   // 改密卡片与配置加载解耦：配置加载失败也应能改密码
@@ -30,8 +31,8 @@ export async function render(container) {
 function pageHead() {
   const head = el("div", { class: "page-head" });
   const titles = el("div", { class: "page-head__titles" });
-  titles.appendChild(el("h1", { class: "page-title", text: "设置" }));
-  titles.appendChild(el("div", { class: "page-subtitle", text: "评论模块当前生效配置（只读）" }));
+  titles.appendChild(el("h1", { class: "page-title", text: t("settings.title") }));
+  titles.appendChild(el("div", { class: "page-subtitle", text: t("settings.subtitle") }));
   head.appendChild(titles);
   return head;
 }
@@ -43,19 +44,19 @@ function renderConfig(cfg) {
 
   const card = el("mdui-card", { class: "page-card" });
   const header = el("div", { class: "page-card__header" });
-  header.appendChild(el("div", { class: "page-card__title", text: "comment 配置" }));
+  header.appendChild(el("div", { class: "page-card__title", text: t("settings.commentConfig") }));
   card.appendChild(header);
 
   const body = el("div", { class: "page-card__body" });
   const dl = el("div", { class: "kv-list" });
 
   const rows = [
-    ["moderation", comment.moderation, "新评论是否需要审核（true 时为 pending，否则直接 approved）"],
-    ["max_length", comment.max_length, "评论最大字符数"],
-    ["rate_limit_per_minute", comment.rate_limit_per_minute, "单 IP 每分钟最多提交数"],
-    ["default_nick", comment.default_nick, "未提供昵称时的默认值"],
-    ["avatar_cdn", comment.avatar_cdn || "(空)", "邮箱头像 CDN（gravatar 协议镜像）；空 = 禁用邮箱头像层"],
-    ["version", version, "后端版本号"],
+    ["moderation", comment.moderation, t("settings.hintModeration")],
+    ["max_length", comment.max_length, t("settings.hintMaxLength")],
+    ["rate_limit_per_minute", comment.rate_limit_per_minute, t("settings.hintRateLimit")],
+    ["default_nick", comment.default_nick, t("settings.hintDefaultNick")],
+    ["avatar_cdn", comment.avatar_cdn || t("settings.emptyValue"), t("settings.hintAvatarCdn")],
+    ["version", version, t("settings.hintVersion")],
   ];
 
   for (const [k, v, hint] of rows) {
@@ -69,11 +70,11 @@ function renderConfig(cfg) {
   body.appendChild(dl);
 
   const note = el("div", { class: "page-subtitle", style: { marginTop: "20px", lineHeight: "1.8" } });
-  note.appendChild(document.createTextNode("如需修改配置，请编辑 "));
+  note.appendChild(document.createTextNode(t("settings.configNotePre")));
   note.appendChild(el("code", { text: "config/local.toml" }));
-  note.appendChild(document.createTextNode(" 或设置环境变量（如 "));
+  note.appendChild(document.createTextNode(t("settings.configNoteMid")));
   note.appendChild(el("code", { text: "APP_COMMENT__MODERATION=true" }));
-  note.appendChild(document.createTextNode("），重启服务后生效。"));
+  note.appendChild(document.createTextNode(t("settings.configNotePost")));
   body.appendChild(note);
 
   card.appendChild(body);
@@ -92,18 +93,18 @@ function formatVal(v) {
 function renderPasswordCard() {
   const card = el("mdui-card", { class: "page-card" });
   const header = el("div", { class: "page-card__header" });
-  header.appendChild(el("div", { class: "page-card__title", text: "账号安全" }));
+  header.appendChild(el("div", { class: "page-card__title", text: t("settings.accountSecurity") }));
   card.appendChild(header);
 
   const body = el("div", { class: "page-card__body" });
   body.appendChild(el("div", {
     class: "page-subtitle",
     style: { lineHeight: "1.8", marginBottom: "16px" },
-    text: "修改成功后所有已登录状态（包括当前会话）将立即失效，需要重新登录。",
+    text: t("settings.passwordNote"),
   }));
   body.appendChild(el("mdui-button", {
     variant: "tonal",
-    text: "修改密码",
+    text: t("settings.changePassword"),
     onClick: openPasswordDialog,
   }));
   card.appendChild(body);
@@ -112,7 +113,7 @@ function renderPasswordCard() {
 
 function openPasswordDialog() {
   const dialog = el("mdui-dialog", {
-    headline: "修改密码",
+    headline: t("settings.changePassword"),
     closeOnEsc: true,
     closeOnOverlayClick: true,
   });
@@ -124,7 +125,7 @@ function openPasswordDialog() {
   });
 
   const currentField = el("mdui-text-field", {
-    label: "当前密码",
+    label: t("settings.currentPassword"),
     type: "password",
     variant: "filled",
     autocomplete: "current-password",
@@ -132,7 +133,7 @@ function openPasswordDialog() {
     required: true,
   });
   const newField = el("mdui-text-field", {
-    label: "新密码（至少 8 个字符）",
+    label: t("settings.newPassword"),
     type: "password",
     variant: "filled",
     autocomplete: "new-password",
@@ -140,7 +141,7 @@ function openPasswordDialog() {
     required: true,
   });
   const confirmField = el("mdui-text-field", {
-    label: "确认新密码",
+    label: t("settings.confirmPassword"),
     type: "password",
     variant: "filled",
     autocomplete: "new-password",
@@ -163,7 +164,7 @@ function openPasswordDialog() {
   const cancelBtn = el("mdui-button", {
     slot: "action",
     variant: "text",
-    text: "取消",
+    text: t("common.cancel"),
     onClick: () => {
       dialog.open = false;
     },
@@ -171,7 +172,7 @@ function openPasswordDialog() {
   const submitBtn = el("mdui-button", {
     slot: "action",
     variant: "filled",
-    text: "更新密码",
+    text: t("settings.updatePassword"),
   });
   dialog.append(cancelBtn, submitBtn);
 
@@ -187,16 +188,16 @@ function openPasswordDialog() {
     const confirm = confirmField.value;
     errBox.hidden = true;
 
-    if (!current || !next || !confirm) return showErr("请填写全部字段");
-    if (next.length < 8) return showErr("新密码至少 8 个字符");
-    if (next !== confirm) return showErr("两次输入的新密码不一致");
+    if (!current || !next || !confirm) return showErr(t("settings.fillAll"));
+    if (next.length < 8) return showErr(t("settings.tooShort"));
+    if (next !== confirm) return showErr(t("settings.mismatch"));
 
     submitBtn.loading = true;
     submitBtn.disabled = true;
     try {
       await changePassword(current, next);
       dialog.open = false;
-      toastOk("密码已更新", "请使用新密码重新登录");
+      toastOk(t("settings.updated"), t("settings.updatedMsg"));
       // 服务端已自增 token_version，本地会话同步清除后跳登录页
       clearSession();
       setTimeout(() => {

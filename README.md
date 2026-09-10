@@ -60,11 +60,16 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
     el: '#comments',
     server: 'https://你的域名',   // 同源部署可留空 ''
     url: location.pathname,       // 文章标识，默认当前路径
+    lang: 'auto',                 // 界面语言：'auto'（默认，按访客浏览器探测）| 'zh-CN' | 'en'
+    colorPattern: '#2196f3',      // 主题种子色（默认淡蓝），由它派生整套 Material 3 配色
+    darkMode: 'auto',             // 'auto'（默认，跟随访客系统）| 'light' | 'dark'
   });
 </script>
 ```
 
-SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回复预览 + 按需展开）、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾、全量 textContent 防 XSS、深浅色自适应，CSS 变量（`--rs-*`）可定制。
+界面文案也支持自定义覆盖（可借此扩展其他语言）：`lang: { submit: '发表评论', empty: '还没有评论' }` 会浅合并到内置字典上，只需给出要改的键；内置字典完整键列表见浏览器控制台 `Rustaline.langs`。
+
+SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回复预览 + 按需展开）、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾、全量 textContent 防 XSS；配色由 `colorPattern` 种子色派生（默认淡蓝，多实例可各自不同），`darkMode` 控制明暗（默认跟随系统），CSS 变量（`--rs-*`）可进一步定制。
 
 ### 公共接口（匿名，无需登录）
 
@@ -78,17 +83,19 @@ SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回�
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/admin/comments` | 分页列表（status/url/keyword 过滤），含 ip/mail/ua |
+| GET | `/api/v1/admin/comments` | 分页列表（status/url/keyword/from 过滤，from 为 UTC 起始日期 YYYY-MM-DD），含 ip/mail/ua |
 | PATCH | `/api/v1/admin/comments/{id}` | 审核：`{ status: "approved"\|"pending"\|"spam" }` |
 | DELETE | `/api/v1/admin/comments/{id}` | 删除（子评论自动降级为根评论） |
 | POST | `/api/v1/admin/comments/import/valine` | 导入 LeanCloud 导出 JSON（单批 ≤1000 条，按 objectId 幂等） |
-| GET | `/api/v1/admin/comments/stats` | 统计（按状态计数、今日新增、url 排行） |
+| GET | `/api/v1/admin/comments/stats` | 统计（按状态计数、今日新增、url 排行前 30） |
 | GET | `/api/v1/admin/config` | 当前生效的 comment 配置（只读） |
 | POST | `/api/v1/admin/account/password` | 修改管理员密码 `{ current_password, new_password }`（新密码 ≥8 字符；成功后全部 token 失效需重新登录） |
 
 ### 管理面板
 
 `/admin/` 原生 ES Modules 单页应用，使用本地 vendor 的 mdui 2.1.5 Web Components：登录、Dashboard 统计、评论管理（过滤/分页/审核/删除）、Valine 导入（文件/粘贴 → 浏览器端分批上传，真实进度条 + 汇总报告，支持十万级数据）、配置查看、修改密码。
+
+管理面板与演示首页均为中英双语界面：默认按浏览器语言判定（`zh*` → 中文，其余 → English），演示页右上角「中文 / English」按钮与管理面板「外观」对话框里的语言选项可手动切换，偏好持久化于 localStorage `rustaline-lang`（SDK 在演示页上也会跟随该偏好）。新增其他语言只需在各端字典文件里补一个同构字典对象。
 
 ### 导入 Valine 历史数据
 

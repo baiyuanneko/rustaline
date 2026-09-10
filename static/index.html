@@ -16,8 +16,10 @@
     body {
       color: rgb(var(--mdui-color-on-background));
       background: rgb(var(--mdui-color-background));
-      font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
-        -apple-system, 'Segoe UI', Roboto, sans-serif;
+      font-family: "Maple Mono NF CN", "Maple Mono", "SF Mono", "JetBrains Mono", "Fira Code",
+        Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", "Noto Sans Mono", Courier, "Noto Sans CJK SC", "Source Han Sans CN",
+        "Source Han Sans", "思源黑体 CN", "思源黑体", "PingFang SC", "微软雅黑", "Microsoft YaHei",
+        sans-serif;
       line-height: 1.7;
       -webkit-font-smoothing: antialiased;
     }
@@ -121,7 +123,10 @@
       margin: 0;
       padding: 16px 18px;
       overflow-x: auto;
-      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+      font-family: "Maple Mono NF CN", "Maple Mono", "SF Mono", "JetBrains Mono", "Fira Code",
+        Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", "Noto Sans Mono", Courier, "Noto Sans CJK SC", "Source Han Sans CN",
+        "Source Han Sans", "思源黑体 CN", "思源黑体", "PingFang SC", "微软雅黑", "Microsoft YaHei",
+        sans-serif;
       font-size: 13px;
       line-height: 1.7;
       color: rgb(var(--mdui-color-on-surface));
@@ -157,26 +162,27 @@
       <span class="topbar__brand">rustaline</span>
       <div class="topbar__spacer"></div>
       <nav class="topbar__links">
-        <mdui-button variant="text" href="#features">特性</mdui-button>
-        <mdui-button variant="text" href="#quickstart">快速开始</mdui-button>
-        <mdui-button variant="text" href="#demo">在线演示</mdui-button>
+        <mdui-button variant="text" href="#features" data-i18n="nav.features">特性</mdui-button>
+        <mdui-button variant="text" href="#quickstart" data-i18n="nav.quickstart">快速开始</mdui-button>
+        <mdui-button variant="text" href="#demo" data-i18n="nav.demo">在线演示</mdui-button>
         <mdui-button variant="text" href="/swagger-ui/" target="_blank">API</mdui-button>
-        <mdui-button variant="text" href="/scaffold-demo.html">脚手架示例</mdui-button>
+        <mdui-button variant="text" href="/scaffold-demo.html" data-i18n="nav.scaffold">脚手架示例</mdui-button>
       </nav>
+      <mdui-button variant="text" id="lang-toggle">English</mdui-button>
     </mdui-top-app-bar>
 
     <mdui-layout-main>
       <div class="page-wrap">
         <section class="hero">
-          <span class="hero__eyebrow">Valine 自托管替代</span>
-          <h1>给你的博客<br>装上 <em>现代评论</em>。</h1>
-          <p class="lede">
+          <span class="hero__eyebrow" data-i18n="hero.eyebrow">Valine 自托管替代</span>
+          <h1><span data-i18n="hero.t1">给你的博客</span><br><span data-i18n="hero.t2">装上 </span><em data-i18n="hero.t3">现代评论</em><span data-i18n="hero.t4">。</span></h1>
+          <p class="lede" data-i18n="hero.lede">
             rustaline 是一个零依赖、可自托管的评论系统。一个 script 标签 + 两行初始化代码，
             即可为任意静态页面带来匿名评论、楼中楼回复、头像推导与垃圾评论防护。
           </p>
           <div class="hero__cta">
-            <mdui-button variant="filled" href="#demo">立即试试评论 ↓</mdui-button>
-            <mdui-button variant="outlined" href="#quickstart">查看接入文档</mdui-button>
+            <mdui-button variant="filled" href="#demo" data-i18n="hero.ctaDemo">立即试试评论 ↓</mdui-button>
+            <mdui-button variant="outlined" href="#quickstart" data-i18n="hero.ctaDocs">查看接入文档</mdui-button>
           </div>
         </section>
 
@@ -184,76 +190,70 @@
           <div class="features">
             <mdui-card class="feature">
               <span class="feature__icon">📦</span>
-              <h3>零依赖单文件</h3>
-              <p>原生 ES2018+，不依赖 jQuery / Vue / 任何 CDN，一个 rustaline.js 全部搞定。</p>
+              <h3 data-i18n="feat.1.t">零依赖单文件</h3>
+              <p data-i18n="feat.1.p">原生 ES2018+，不依赖 jQuery / Vue / 任何 CDN，一个 rustaline.js 全部搞定。</p>
             </mdui-card>
             <mdui-card class="feature">
               <span class="feature__icon">🌳</span>
-              <h3>楼中楼回复</h3>
-              <p>沿用 Valine 经典 pid / rid 模型，回复嵌进父评论下并 @ 被回复者。</p>
+              <h3 data-i18n="feat.2.t">楼中楼回复</h3>
+              <p data-i18n="feat.2.p">沿用 Valine 经典 pid / rid 模型，回复嵌进父评论下并 @ 被回复者。</p>
             </mdui-card>
             <mdui-card class="feature">
               <span class="feature__icon">🛡️</span>
-              <h3>内置反垃圾</h3>
-              <p>蜜罐字段、IP 限流、可选审核先审后发，多层防护对抗机器人。</p>
+              <h3 data-i18n="feat.3.t">内置反垃圾</h3>
+              <p data-i18n="feat.3.p">蜜罐字段、IP 限流、可选审核先审后发，多层防护对抗机器人。</p>
             </mdui-card>
             <mdui-card class="feature">
               <span class="feature__icon">🎨</span>
-              <h3>可定制主题</h3>
-              <p>CSS 变量自由覆盖，深浅色自动跟随系统，移动端原生友好。</p>
+              <h3 data-i18n="feat.4.t">可定制主题</h3>
+              <p data-i18n="feat.4.p">CSS 变量自由覆盖，深浅色自动跟随系统，移动端原生友好。</p>
             </mdui-card>
             <mdui-card class="feature">
               <span class="feature__icon">🔒</span>
-              <h3>隐私优先</h3>
-              <p>公共 API 永不返回 ip / mail / ua；头像由服务端推导，邮箱不落前端。</p>
+              <h3 data-i18n="feat.5.t">隐私优先</h3>
+              <p data-i18n="feat.5.p">公共 API 永不返回 ip / mail / ua；头像由服务端推导，邮箱不落前端。</p>
             </mdui-card>
             <mdui-card class="feature">
               <span class="feature__icon">🗄️</span>
-              <h3>自托管数据</h3>
-              <p>评论落在你自己的 SQLite / PostgreSQL / MySQL，告别 LeanCloud 配额焦虑。</p>
+              <h3 data-i18n="feat.6.t">自托管数据</h3>
+              <p data-i18n="feat.6.p">评论落在你自己的 SQLite / PostgreSQL / MySQL，告别 LeanCloud 配额焦虑。</p>
             </mdui-card>
           </div>
         </section>
 
         <section class="block" id="quickstart">
-          <h2>快速开始</h2>
-          <p class="section__desc">把下面两段代码贴进你的 HTML，评论系统就上线了。</p>
+          <h2 data-i18n="qs.title">快速开始</h2>
+          <p class="section__desc" data-i18n="qs.desc">把下面两段代码贴进你的 HTML，评论系统就上线了。</p>
 
           <div class="code">
             <div class="code__head">
               <div class="code__dots"><span></span><span></span><span></span></div>
               <span class="code__file">your-post.html</span>
             </div>
-<pre><span class="tok-c">&lt;!-- ① 引入 SDK（同源部署，或填完整 URL 跨域调用）--&gt;</span>
+<pre><span class="tok-c" data-i18n="qs.code1">&lt;!-- ① 引入 SDK（同源部署，或填完整 URL 跨域调用）--&gt;</span>
 <span class="tok-t">&lt;script</span> src=<span class="tok-s">"/sdk/rustaline.js"</span><span class="tok-t">&gt;&lt;/script&gt;</span>
 
-<span class="tok-c">&lt;!-- ② 挂载点 + 初始化 --&gt;</span>
+<span class="tok-c" data-i18n="qs.code2">&lt;!-- ② 挂载点 + 初始化 --&gt;</span>
 <span class="tok-t">&lt;div</span> id=<span class="tok-s">"comments"</span><span class="tok-t">&gt;&lt;/div&gt;</span>
 <span class="tok-t">&lt;script&gt;</span>
   <span class="tok-k">new</span> Rustaline({
     el: <span class="tok-s">'#comments'</span>,
-    server: <span class="tok-s">''</span>,                          <span class="tok-c">// 留空 = 同源；可填 https://api.example.com</span>
-    url: location.pathname,             <span class="tok-c">// 文章标识，默认当前路径</span>
-    placeholder: <span class="tok-s">'说点什么吧…'</span>,
+    server: <span class="tok-s">''</span>,                          <span class="tok-c" data-i18n="qs.code3">// 留空 = 同源；可填 https://api.example.com</span>
+    url: location.pathname,             <span class="tok-c" data-i18n="qs.code4">// 文章标识，默认当前路径</span>
+    placeholder: <span class="tok-s" data-i18n="qs.codePlaceholder">'说点什么吧…'</span>,
     gravatarCdn: <span class="tok-s">'https://gravatar.loli.net/avatar/'</span>
   });
 <span class="tok-t">&lt;/script&gt;</span></pre>
           </div>
 
-          <p style="font-size: 14px; color: rgb(var(--mdui-color-on-surface-variant)); margin: 16px 0 0;">
-            想看完整后端字段定义？参考
-            <a href="/swagger-ui/" target="_blank">Swagger UI</a>
-            中的 <code>/api/v1/comments</code> 接口。
-          </p>
+          <p style="font-size: 14px; color: rgb(var(--mdui-color-on-surface-variant)); margin: 16px 0 0;"><span data-i18n="qs.morePre">想看完整后端字段定义？参考 </span><a href="/swagger-ui/" target="_blank">Swagger UI</a><span data-i18n="qs.moreMid"> 中的 </span><code>/api/v1/comments</code><span data-i18n="qs.morePost"> 接口。</span></p>
         </section>
 
         <section class="block" id="demo">
-          <h2>在线演示</h2>
+          <h2 data-i18n="demo.title">在线演示</h2>
           <p class="section__desc">
-            下面这个评论框就是真实运行的 rustaline 实例。试着发一条评论、点回复、再刷新页面看看。
-            <span style="color: rgb(var(--mdui-color-on-surface-variant));">
-              （需要后端服务已启动；若接口未就绪会显示加载失败与重试按钮。）
-            </span>
+            <span data-i18n="demo.desc">下面这个评论框就是真实运行的 rustaline 实例。试着发一条评论、点回复、再刷新页面看看。</span>
+            <span style="color: rgb(var(--mdui-color-on-surface-variant));" data-i18n="demo.descNote">（需要后端服务已启动；若接口未就绪会显示加载失败与重试按钮。）</span>
           </p>
           <div id="comments">
             <!-- rustaline SDK 会接管此节点 -->
@@ -261,11 +261,11 @@
         </section>
 
         <footer>
-          <span>rustaline · Valine 自托管替代品 · 基于 axum + sea-orm</span>
+          <span data-i18n="footer.left">rustaline · Valine 自托管替代品 · 基于 axum + sea-orm</span>
           <nav>
-            <a href="/swagger-ui/" target="_blank">API 文档</a>
-            <a href="/scaffold-demo.html">脚手架示例</a>
-            <a href="/health" target="_blank">健康检查</a>
+            <a href="/swagger-ui/" target="_blank" data-i18n="footer.api">API 文档</a>
+            <a href="/scaffold-demo.html" data-i18n="footer.scaffold">脚手架示例</a>
+            <a href="/health" target="_blank" data-i18n="footer.health">健康检查</a>
           </nav>
         </footer>
       </div>
@@ -274,14 +274,17 @@
 
   <script defer src="/vendor/mdui/mdui.global.js"></script>
   <script defer src="/theme.js"></script>
+  <!-- 页面 i18n（非 defer：先于 SDK 初始化脚本执行，提供 getLang 给下方实例） -->
+  <script src="/index-i18n.js"></script>
   <!-- 引入 rustaline SDK -->
   <script src="/sdk/rustaline.js"></script>
-  <!-- 初始化评论实例 -->
+  <!-- 初始化评论实例：lang 跟随页面语言偏好（rustaline-lang），未设置时按浏览器语言探测 -->
   <script>
     new Rustaline({
       el: '#comments',
       server: '',
-      url: location.pathname
+      url: location.pathname,
+      lang: window.rustalineIndexI18n ? window.rustalineIndexI18n.getLang() : 'auto'
     });
   </script>
 </body>

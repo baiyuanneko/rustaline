@@ -13,8 +13,10 @@ body {
 body {
   color: rgb(var(--mdui-color-on-background));
   background: rgb(var(--mdui-color-background));
-  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui,
-    -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Maple Mono NF CN", "Maple Mono", "SF Mono", "JetBrains Mono", "Fira Code",
+    Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", "Noto Sans Mono", Courier, "Noto Sans CJK SC", "Source Han Sans CN",
+    "Source Han Sans", "思源黑体 CN", "思源黑体", "PingFang SC", "微软雅黑", "Microsoft YaHei",
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -36,6 +38,13 @@ body {
 }
 
 /* ---- 外观设置对话框 ---- */
+/* mdui-segmented-button-group 的 shadow 内有个辅助 form 提交的隐藏 <input>，
+   尺寸比宿主大一圈（右 5px / 下 3px），会把 dialog body 撑出无用滚动条；
+   本对话框内容固定且很短，直接禁止 body 滚动 */
+.theme-dialog::part(body) {
+  overflow: hidden;
+}
+
 .theme-picker {
   display: grid;
   gap: 10px;
@@ -139,6 +148,12 @@ body {
 }
 
 .sidebar__link {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
   color: rgb(var(--mdui-color-on-surface-variant));
   text-decoration: none;
   font-size: 13px;
@@ -191,6 +206,7 @@ body {
 }
 
 /* mdui 组件 host css 的 display 会覆盖 UA 的 [hidden] 规则，显式补回隐藏语义 */
+.topbar__user[hidden],
 mdui-card[hidden],
 mdui-badge[hidden] {
   display: none !important;
@@ -249,7 +265,7 @@ mdui-badge[hidden] {
 /* ---- 筛选区 ---- */
 .filters {
   display: grid;
-  grid-template-columns: 170px minmax(220px, 1fr) minmax(180px, 1fr) auto auto;
+  grid-template-columns: 150px minmax(180px, 1fr) minmax(160px, 1fr) 180px auto auto;
   gap: 12px;
   align-items: center;
   margin-bottom: 20px;
@@ -624,6 +640,8 @@ mdui-badge[hidden] {
 }
 
 .stat-card--clickable {
+  position: relative;
+  overflow: hidden;
   cursor: pointer;
 }
 
@@ -682,12 +700,16 @@ mdui-badge[hidden] {
 }
 
 .rank-row__url {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
   color: rgb(var(--mdui-color-primary));
   font-size: 14px;
 }
@@ -858,7 +880,10 @@ mdui-badge[hidden] {
   border: 1px solid rgb(var(--mdui-color-outline-variant));
   border-radius: var(--mdui-shape-corner-extra-small, 8px);
   background: rgb(var(--mdui-color-surface-container-low));
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: "Maple Mono NF CN", "Maple Mono", "SF Mono", "JetBrains Mono", "Fira Code",
+    Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", "Noto Sans Mono", Courier, "Noto Sans CJK SC", "Source Han Sans CN",
+    "Source Han Sans", "思源黑体 CN", "思源黑体", "PingFang SC", "微软雅黑", "Microsoft YaHei",
+    sans-serif;
   font-size: 12.5px;
   line-height: 1.7;
 }
@@ -990,7 +1015,10 @@ mdui-dialog.detail::part(panel) {
 }
 
 .detail__value--mono {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: "Maple Mono NF CN", "Maple Mono", "SF Mono", "JetBrains Mono", "Fira Code",
+    Consolas, "Liberation Mono", Menlo, "Noto Sans Mono CJK SC", "Noto Sans Mono", Courier, "Noto Sans CJK SC", "Source Han Sans CN",
+    "Source Han Sans", "思源黑体 CN", "思源黑体", "PingFang SC", "微软雅黑", "Microsoft YaHei",
+    sans-serif;
 }
 
 .detail__actions {

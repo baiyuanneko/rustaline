@@ -1,5 +1,6 @@
 import { login, setSession } from "../api.js";
 import { el } from "../components.js";
+import { t } from "../i18n.js";
 
 export async function render(container) {
   container.appendChild(buildLoginScreen());
@@ -16,18 +17,18 @@ function buildLoginScreen() {
   brand.appendChild(mark);
   brand.appendChild(el("div", { class: "login-brand__name", text: "rustaline" }));
   body.appendChild(brand);
-  body.appendChild(el("div", { class: "login-title", text: "管理面板登录" }));
+  body.appendChild(el("div", { class: "login-title", text: t("auth.loginTitle") }));
 
   const form = el("form", { class: "login-form", onsubmit: (e) => e.preventDefault() });
   const usernameField = el("mdui-text-field", {
-    label: "用户名",
+    label: t("auth.username"),
     name: "username",
     variant: "filled",
     autocomplete: "username",
     required: true,
   });
   const passwordField = el("mdui-text-field", {
-    label: "密码",
+    label: t("auth.password"),
     name: "password",
     type: "password",
     variant: "filled",
@@ -45,7 +46,7 @@ function buildLoginScreen() {
     type: "submit",
     variant: "filled",
     fullWidth: true,
-    text: "登录",
+    text: t("auth.login"),
     style: { marginTop: "8px" },
   });
   form.appendChild(submitBtn);
@@ -53,7 +54,7 @@ function buildLoginScreen() {
 
   const hint = el("div", {
     class: "login-hint",
-    text: "初始账号由环境变量 APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD 在首次启动时写入；改密码请在设置页操作",
+    text: t("auth.initialHint"),
   });
   body.appendChild(hint);
   card.appendChild(body);
@@ -65,7 +66,7 @@ function buildLoginScreen() {
 
     errBox.hidden = true;
     if (!username || !password) {
-      showError(errBox, "请输入用户名和密码");
+      showError(errBox, t("auth.requiredFields"));
       return;
     }
 

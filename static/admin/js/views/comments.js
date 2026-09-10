@@ -20,19 +20,21 @@ import {
   el,
 } from "../components.js";
 import { forceRefreshBadge } from "../app.js";
+import { t } from "../i18n.js";
 
 const PAGE_SIZE = 20;
 const STATUSES = [
-  { value: "", label: "全部状态" },
-  { value: "approved", label: "已通过" },
-  { value: "pending", label: "待审核" },
-  { value: "spam", label: "垃圾" },
+  { value: "", labelKey: "filter.allStatus" },
+  { value: "approved", labelKey: "status.approved" },
+  { value: "pending", labelKey: "status.pending" },
+  { value: "spam", labelKey: "status.spam" },
 ];
 
 const state = {
   status: "",
   url: "",
   keyword: "",
+  from: "",
   page: 1,
   urlOptions: [],
 };
@@ -61,19 +63,27 @@ export async function render(container) {
 function pageHead() {
   const head = el("div", { class: "page-head" });
   const titles = el("div", { class: "page-head__titles" });
-  titles.appendChild(el("h1", { class: "page-title", text: "评论管理" }));
-  titles.appendChild(el("div", { class: "page-subtitle", text: "审核、删除、按状态/文章/关键词筛选" }));
+  titles.appendChild(el("h1", { class: "page-title", text: t("comments.title") }));
+  titles.appendChild(el("div", { class: "page-subtitle", text: t("comments.subtitle") }));
   head.appendChild(titles);
   return head;
 }
 
 function applyHashQuery() {
+  // state 是模块级对象、跨视图挂载存活；每次从 hash 进入都先归零，
+  // 避免上次访问的过滤条件（如仪表盘卡片带入的 from）残留串味
+  state.status = "";
+  state.url = "";
+  state.keyword = "";
+  state.from = "";
+  state.page = 1;
   const m = (location.hash || "").match(/\?(.+)$/);
   if (!m) return;
   const params = new URLSearchParams(m[1]);
   if (params.has("status")) state.status = params.get("status") || "";
   if (params.has("url")) state.url = params.get("url") || "";
   if (params.has("keyword")) state.keyword = params.get("keyword") || "";
+  if (params.has("from")) state.from = params.get("from") || "";
   if (params.has("page")) state.page = Number(params.get("page")) || 1;
   history.replaceState(null, "", "#/comments");
 }
@@ -81,9 +91,9 @@ function applyHashQuery() {
 function buildFilters() {
   const wrap = el("div", { class: "filters" });
 
-  const statusSel = el("mdui-select", { id: "filter-status", label: "状态", variant: "filled" });
+  const statusSel = el("mdui-select", { id: "filter-status", label: t("filter.status"), variant: "filled" });
   STATUSES.forEach((s) => {
-    statusSel.appendChild(menuItem(s.value, s.label));
+    statusSel.appendChild(menuItem(s.value, t(s.labelKey)));
   });
   statusSel.value = state.status;
   statusSel.addEventListener("change", () => {
@@ -98,10 +108,10 @@ function buildFilters() {
 
   const kwInput = el("mdui-text-field", {
     id: "filter-keyword",
-    label: "关键词",
+    label: t("filter.keyword"),
     variant: "filled",
     type: "search",
-    placeholder: "搜索昵称 / 邮箱 / 评论内容",
+    placeholder: t("filter.keywordPlaceholder"),
     value: state.keyword,
   });
   kwInput.addEventListener("keydown", (e) => {
@@ -113,7 +123,22 @@ function buildFilters() {
   });
   wrap.appendChild(kwInput);
 
-  const searchBtn = el("mdui-button", { variant: "filled", text: "查询" });
+  // 起始日期（UTC 口径，YYYY-MM-DD）：仪表盘「今日新增」卡片跳转时由 hash 带入
+  const fromInput = el("mdui-text-field", {
+    id: "filter-from",
+    label: t("filter.from"),
+    variant: "filled",
+    type: "date",
+    value: state.from,
+  });
+  fromInput.addEventListener("change", () => {
+    state.from = String(fromInput.value || "");
+    state.page = 1;
+    reload();
+  });
+  wrap.appendChild(fromInput);
+
+  const searchBtn = el("mdui-button", { variant: "filled", text: t("filter.search") });
   searchBtn.addEventListener("click", () => {
     state.keyword = String(kwInput.value || "").trim();
     state.page = 1;
@@ -121,15 +146,17 @@ function buildFilters() {
   });
   wrap.appendChild(searchBtn);
 
-  const resetBtn = el("mdui-button", { variant: "outlined", text: "重置" });
+  const resetBtn = el("mdui-button", { variant: "outlined", text: t("filter.reset") });
   resetBtn.addEventListener("click", () => {
     state.status = "";
     state.url = "";
     state.keyword = "";
+    state.from = "";
     state.page = 1;
     statusSel.value = "";
     if (urlFilter) urlFilter.input.value = "";
     kwInput.value = "";
+    fromInput.value = "";
     reload();
   });
   wrap.appendChild(resetBtn);
@@ -148,10 +175,10 @@ function buildUrlFilter() {
   const box = el("div", { class: "url-filter" });
   const input = el("mdui-text-field", {
     id: "filter-url",
-    label: "URL",
+    label: t("filter.url"),
     variant: "filled",
     type: "search",
-    placeholder: "输入关键字筛选 URL",
+    placeholder: t("filter.urlPlaceholder"),
     value: state.url,
     attrs: { autocomplete: "off" },
   });
@@ -177,14 +204,14 @@ function buildUrlFilter() {
     panel.replaceChildren();
     const all = el("div", {
       class: `url-filter__opt${state.url ? "" : " is-active"}`,
-      text: "全部 URL",
+      text: t("filter.allUrls"),
     });
     all.addEventListener("click", () => choose(""));
     panel.appendChild(all);
     if (matched.length === 0) {
-      panel.appendChild(el("div", { class: "url-filter__empty", text: "没有匹配的 URL" }));
+      panel.appendChild(el("div", { class: "url-filter__empty", text: t("filter.noMatchedUrl") }));
     }
-    // 上限 200 条防止超长列表拖慢渲染（URL 排行接口本身只给前 100）
+    // 上限 200 条防止超长列表拖慢渲染（URL 排行接口本身只给前 30）
     for (const u of matched.slice(0, 200)) {
       const opt = el("div", {
         class: `url-filter__opt${state.url === u ? " is-active" : ""}`,
@@ -248,6 +275,7 @@ async function loadList(host) {
       status: state.status,
       url: state.url,
       keyword: state.keyword,
+      from: state.from,
       page: state.page,
       page_size: PAGE_SIZE,
     });
@@ -257,12 +285,12 @@ async function loadList(host) {
     host.replaceChildren();
     host.appendChild(
       emptyState({
-        title: "加载评论失败",
+        title: t("comments.loadFailed"),
         hint: err.message || String(err),
         icon: "warn",
       })
     );
-    if (err.status !== 401) toastErr("加载失败", err.message);
+    if (err.status !== 401) toastErr(t("common.loadFailed"), err.message);
   }
 }
 
@@ -275,8 +303,8 @@ function renderTable(host, data) {
   if (items.length === 0) {
     host.appendChild(
       emptyState({
-        title: "没有匹配的评论",
-        hint: "尝试调整筛选条件，或前往导入页导入历史数据",
+        title: t("comments.noMatch"),
+        hint: t("comments.noMatchHint"),
       })
     );
     return;
@@ -287,7 +315,14 @@ function renderTable(host, data) {
 
   const thead = el("thead");
   const tr = el("tr");
-  ["作者", "评论内容", "URL", "状态", "时间", "操作"].forEach((text) => {
+  [
+    t("comments.colAuthor"),
+    t("comments.colContent"),
+    t("comments.colUrl"),
+    t("comments.colStatus"),
+    t("comments.colTime"),
+    t("comments.colActions"),
+  ].forEach((text) => {
     tr.appendChild(el("th", { text }));
   });
   thead.appendChild(tr);
@@ -317,9 +352,9 @@ function renderRow(item) {
   const authorWrap = el("div", { class: "author-cell" });
   authorWrap.appendChild(avatar(item));
   const meta = el("div", { class: "author-cell__meta" });
-  meta.appendChild(el("div", { class: "author-cell__nick", text: item.nick || "Anonymous" }));
+  meta.appendChild(el("div", { class: "author-cell__nick", text: item.nick || t("common.anonymous") }));
   const mail = el("div", { class: "author-cell__mail", text: item.mail || item.ip || "" });
-  mail.title = item.mail ? `邮箱：${item.mail}` : "";
+  mail.title = item.mail ? t("comments.mailTitle", { mail: item.mail }) : "";
   meta.appendChild(mail);
   authorWrap.appendChild(meta);
   authorTd.appendChild(authorWrap);
@@ -327,7 +362,7 @@ function renderRow(item) {
 
   const contentTd = el("td");
   const contentWrap = el("div", { class: "comment-cell" });
-  const text = el("div", { class: "comment-cell__text", text: item.comment || "", title: "点击查看完整内容" });
+  const text = el("div", { class: "comment-cell__text", text: item.comment || "", title: t("comments.viewFull") });
   text.addEventListener("click", () => openDetail(item));
   contentWrap.appendChild(text);
 
@@ -339,12 +374,12 @@ function renderRow(item) {
       const excerpt = full.length > 30 ? `${full.slice(0, 30)}…` : full;
       reply.appendChild(el("span", {
         class: "comment-cell__reply-nick",
-        text: `回复 @${item.parent.nick || "Anonymous"}`,
+        text: t("comments.replyTo", { nick: item.parent.nick || t("common.anonymous") }),
       }));
       reply.appendChild(el("span", { text: `：${excerpt}`, title: full }));
     } else {
       // 父评论已不存在（如导入数据的孤儿 pid），退化为提示 + 原始 pid
-      reply.appendChild(el("span", { text: "回复一条评论", title: `父评论 ID：${item.pid}` }));
+      reply.appendChild(el("span", { text: t("comments.replyToDeleted"), title: t("comments.parentIdTitle", { pid: item.pid }) }));
     }
     contentWrap.appendChild(reply);
   }
@@ -401,46 +436,46 @@ function rowActions(item) {
     setLoading(btn);
     try {
       await patchComment(item.id, status);
-      toastOk("操作成功", `已更新状态为「${statusLabel(status)}」`);
+      toastOk(t("common.opSuccess"), t("action.statusUpdated", { label: statusLabel(status) }));
       forceRefreshBadge();
       reload();
     } catch (err) {
       restore(btn);
-      toastErr("操作失败", err.message);
+      toastErr(t("common.opFailed"), err.message);
     }
   };
 
   if (item.status === "pending") {
-    btns.push(mk("通过", "filled", (b) => onStatus(b, "approved")));
-    btns.push(mk("标垃圾", "tonal", (b) => onStatus(b, "spam")));
+    btns.push(mk(t("action.approve"), "filled", (b) => onStatus(b, "approved")));
+    btns.push(mk(t("action.markSpam"), "tonal", (b) => onStatus(b, "spam")));
   } else if (item.status === "approved") {
-    btns.push(mk("标垃圾", "tonal", (b) => onStatus(b, "spam")));
+    btns.push(mk(t("action.markSpam"), "tonal", (b) => onStatus(b, "spam")));
   } else if (item.status === "spam") {
-    btns.push(mk("恢复", "filled", (b) => onStatus(b, "approved")));
+    btns.push(mk(t("action.restore"), "filled", (b) => onStatus(b, "approved")));
   } else {
-    btns.push(mk("通过", "filled", (b) => onStatus(b, "approved")));
+    btns.push(mk(t("action.approve"), "filled", (b) => onStatus(b, "approved")));
   }
 
-  btns.push(mk("详情", "text", () => openDetail(item)));
+  btns.push(mk(t("common.detail"), "text", () => openDetail(item)));
 
-  const delBtn = mk("删除", "outlined", async (b) => {
+  const delBtn = mk(t("action.delete"), "outlined", async (b) => {
     const result = await confirmDialog({
-      title: "确认删除该评论？",
-      bodyText: "删除后不可恢复。子评论会自动降级为根评论（不连坐整楼）。",
-      confirmText: "删除",
-      cancelText: "取消",
+      title: t("action.deleteConfirmTitle"),
+      bodyText: t("action.deleteConfirmBody"),
+      confirmText: t("action.delete"),
+      cancelText: t("common.cancel"),
       danger: true,
     });
     if (result !== "confirm") return;
     setLoading(b);
     try {
       await deleteComment(item.id);
-      toastOk("已删除", "评论已移除");
+      toastOk(t("action.deleted"), t("action.deletedMsg"));
       forceRefreshBadge();
       reload();
     } catch (err) {
       restore(b);
-      toastErr("删除失败", err.message);
+      toastErr(t("action.deleteFailed"), err.message);
     }
   });
   btns.push(delBtn);
@@ -449,22 +484,25 @@ function rowActions(item) {
 }
 
 function statusLabel(s) {
-  return s === "approved" ? "已通过" : s === "pending" ? "待审核" : s === "spam" ? "垃圾" : s;
+  return s === "approved" ? t("status.approved")
+    : s === "pending" ? t("status.pending")
+    : s === "spam" ? t("status.spam")
+    : s;
 }
 
 function openDetail(item) {
   let statusBadgeEl = null;
   const detail = openDetailDialog({
-    title: "评论详情",
+    title: t("comments.detailTitle"),
     renderBody: () => {
       const body = el("div");
 
       const head = el("div", { style: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" } });
       head.appendChild(avatar(item));
       const headMeta = el("div", { style: { minWidth: "0" } });
-      headMeta.appendChild(el("div", { text: item.nick || "Anonymous", style: { fontWeight: "600", color: "rgb(var(--mdui-color-on-surface))" } }));
+      headMeta.appendChild(el("div", { text: item.nick || t("common.anonymous"), style: { fontWeight: "600", color: "rgb(var(--mdui-color-on-surface))" } }));
       headMeta.appendChild(el("div", {
-        text: item.mail || "(无邮箱)",
+        text: item.mail || t("comments.noMail"),
         style: { fontSize: "12px", color: "rgb(var(--mdui-color-on-surface-variant))" },
       }));
       head.appendChild(headMeta);
@@ -474,20 +512,20 @@ function openDetail(item) {
       head.appendChild(statusBadgeEl);
       body.appendChild(head);
 
-      body.appendChild(el("div", { class: "detail__comment", text: item.comment || "(空评论)" }));
+      body.appendChild(el("div", { class: "detail__comment", text: item.comment || t("comments.emptyComment") }));
 
-      body.appendChild(detailRow("评论 ID", item.id || "—", true));
-      body.appendChild(detailRow("URL", item.url || "—", true));
-      if (item.pid) body.appendChild(detailRow("父评论 pid", item.pid, true));
-      if (item.rid) body.appendChild(detailRow("根评论 rid", item.rid, true));
-      if (item.link) body.appendChild(detailRow("个人链接", item.link, true));
-      if (item.qq_avatar) body.appendChild(detailRow("QQ 头像", item.qq_avatar, true));
-      if (item.ip) body.appendChild(detailRow("IP", item.ip || "—", true));
-      if (item.ua) body.appendChild(detailRow("User-Agent", item.ua, true));
-      body.appendChild(detailRow("插入时间", formatTime(item.inserted_at)));
-      body.appendChild(detailRow("创建时间", formatTime(item.created_at)));
-      body.appendChild(detailRow("更新时间", formatTime(item.updated_at)));
-      body.appendChild(detailRow("已通知", item.is_notified ? "是" : "否"));
+      body.appendChild(detailRow(t("detail.commentId"), item.id || "—", true));
+      body.appendChild(detailRow(t("detail.url"), item.url || "—", true));
+      if (item.pid) body.appendChild(detailRow(t("detail.pid"), item.pid, true));
+      if (item.rid) body.appendChild(detailRow(t("detail.rid"), item.rid, true));
+      if (item.link) body.appendChild(detailRow(t("detail.link"), item.link, true));
+      if (item.qq_avatar) body.appendChild(detailRow(t("detail.qqAvatar"), item.qq_avatar, true));
+      if (item.ip) body.appendChild(detailRow(t("detail.ip"), item.ip || "—", true));
+      if (item.ua) body.appendChild(detailRow(t("detail.ua"), item.ua, true));
+      body.appendChild(detailRow(t("detail.insertedAt"), formatTime(item.inserted_at)));
+      body.appendChild(detailRow(t("detail.createdAt"), formatTime(item.created_at)));
+      body.appendChild(detailRow(t("detail.updatedAt"), formatTime(item.updated_at)));
+      body.appendChild(detailRow(t("detail.notified"), item.is_notified ? t("common.yes") : t("common.no")));
 
       const actions = el("div", { class: "detail__actions" });
 
@@ -498,14 +536,14 @@ function openDetail(item) {
           b.loading = true;
           try {
             await patchComment(item.id, status);
-            toastOk("操作成功", `状态已更新为「${statusLabel(status)}」`);
+            toastOk(t("common.opSuccess"), t("action.statusUpdated", { label: statusLabel(status) }));
             forceRefreshBadge();
             if (statusBadgeEl && statusBadgeEl.parentNode) {
               statusBadgeEl.parentNode.replaceChild(badge(status), statusBadgeEl);
             }
             reload();
           } catch (err) {
-            toastErr("操作失败", err.message);
+            toastErr(t("common.opFailed"), err.message);
             b.disabled = false;
             b.loading = false;
           }
@@ -513,17 +551,17 @@ function openDetail(item) {
         return b;
       };
 
-      if (item.status !== "approved") actions.appendChild(mkAction("通过", "filled", "approved"));
-      if (item.status !== "spam") actions.appendChild(mkAction("标为垃圾", "tonal", "spam"));
-      if (item.status !== "pending") actions.appendChild(mkAction("退回待审", "outlined", "pending"));
+      if (item.status !== "approved") actions.appendChild(mkAction(t("action.approve"), "filled", "approved"));
+      if (item.status !== "spam") actions.appendChild(mkAction(t("action.markSpamFull"), "tonal", "spam"));
+      if (item.status !== "pending") actions.appendChild(mkAction(t("action.backToPending"), "outlined", "pending"));
 
-      const delBtn = el("mdui-button", { variant: "outlined", text: "删除" });
+      const delBtn = el("mdui-button", { variant: "outlined", text: t("action.delete") });
       delBtn.addEventListener("click", async () => {
         const result = await confirmDialog({
-          title: "确认删除该评论？",
-          bodyText: "删除后不可恢复。子评论会自动降级为根评论。",
-          confirmText: "删除",
-          cancelText: "取消",
+          title: t("action.deleteConfirmTitle"),
+          bodyText: t("action.deleteConfirmBody"),
+          confirmText: t("action.delete"),
+          cancelText: t("common.cancel"),
           danger: true,
         });
         if (result !== "confirm") return;
@@ -531,12 +569,12 @@ function openDetail(item) {
         delBtn.loading = true;
         try {
           await deleteComment(item.id);
-          toastOk("已删除", "评论已移除");
+          toastOk(t("action.deleted"), t("action.deletedMsg"));
           forceRefreshBadge();
           detail.close();
           reload();
         } catch (err) {
-          toastErr("删除失败", err.message);
+          toastErr(t("action.deleteFailed"), err.message);
           delBtn.disabled = false;
           delBtn.loading = false;
         }

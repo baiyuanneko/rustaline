@@ -7,7 +7,14 @@
  *
  * 支持同页面多实例：每个实例拥有独立的 el/server/url 配置与内部状态。
  *
+ * 语言：lang: 'auto'（默认，按浏览器语言探测）| 'zh-CN' | 'en'；
+ *       也可传自定义字典对象（如 { submit: '发表' }），浅合并覆盖内置文案。
+ *       内置字典见 Rustaline.langs，扩展其他语言照其结构即可。
+ *
  * 视觉：内置 Material 3 设计令牌，零依赖单文件，不加载任何 webfont。
+ *       配色由 colorPattern 种子色派生（默认淡蓝 #2196f3，非法值回落默认）；
+ *       darkMode: 'auto'（默认，跟随系统）| 'light' | 'dark'。
+ *       例：new Rustaline({ colorPattern: '#e91e63', darkMode: 'dark' })
  *
  * 安全：所有用户输入一律以 textContent / createTextNode 渲染，绝不 innerHTML 拼接；
  *       link 字段严格校验仅允许 http(s):// 前缀，否则降级为纯文本展示。
@@ -29,15 +36,12 @@
 
   if (global.Rustaline) return; // 防重复加载
 
-  // ===== 默认配置 ============================================================
+  // ===== 语言字典 ============================================================
+  // 内置 zh-CN / en。值可以是字符串（%d 为数字占位）或函数 fn(n) => string（处理复数）。
+  // 扩展其他语言：照此结构补一个字典，或实例化时经 lang 传自定义对象浅合并覆盖。
 
-  var DEFAULTS = {
-    el: '#rustaline',                                  // 挂载点（选择器或元素）
-    server: '',                                        // 后端基地址，'' = 同源
-    url: '',                                           // 文章标识，'' = location.pathname
-    placeholder: '说点什么吧… 千万别留下垃圾评论',
-    gravatarCdn: 'https://gravatar.loli.net/avatar/',  // 头像 CDN，可换 https://gravatar.com/avatar/
-    lang: {
+  var LANGS = {
+    'zh-CN': {
       loading: '加载中…',
       empty: '这里还没有评论，来抢沙发吧',
       error: '评论加载失败',
@@ -54,43 +58,259 @@
       nickRequired: '请填写昵称',
       mailPlaceholder: '邮箱（可选，不公开）',
       linkPlaceholder: '网址（可选）',
+      commentPlaceholder: '说点什么吧',
       commentRequired: '请填写评论内容',
       commentTooLong: '评论内容过长（上限 10000 字）',
+      mailInvalid: '邮箱格式不正确',
+      linkInvalid: '网址必须以 http:// 或 https:// 开头',
       loadMore: '加载更多评论',
       viewAllReplies: '查看全部 %d 条回复',
       continueThread: '继续查看这段对话（%d 条）›',
+      formHint: '支持 Markdown 链接 [文字](https://...)；昵称邮箱将记住在本机',
+      anonymous: '匿名',
+      countLabel: '评论',
       errNetwork: '网络错误，请稍后再试',
       errRate: '操作太频繁，请稍后再试',
-      errGeneric: '发表失败，请稍后再试'
+      errGeneric: '发表失败，请稍后再试',
+      timeJustNow: '刚刚',
+      timeMinutesAgo: function (n) { return n + ' 分钟前'; },
+      timeHoursAgo: function (n) { return n + ' 小时前'; },
+      timeDaysAgo: function (n) { return n + ' 天前'; }
+    },
+    'en': {
+      loading: 'Loading…',
+      empty: 'No comments yet. Be the first!',
+      error: 'Failed to load comments',
+      retry: 'Retry',
+      submit: 'Post Comment',
+      submitting: 'Posting…',
+      reply: 'Reply',
+      cancelReply: 'Cancel',
+      replyTo: 'Reply to @',
+      nick: 'Nickname',
+      mail: 'Email',
+      link: 'Website',
+      nickPlaceholder: 'Nickname',
+      nickRequired: 'Please enter your nickname',
+      mailPlaceholder: 'Email (optional, not public)',
+      linkPlaceholder: 'Website (optional)',
+      commentPlaceholder: 'Say something',
+      commentRequired: 'Please enter your comment',
+      commentTooLong: 'Comment is too long (max 10000 characters)',
+      mailInvalid: 'Invalid email address',
+      linkInvalid: 'Website must start with http:// or https://',
+      loadMore: 'Load more comments',
+      viewAllReplies: function (n) { return n === 1 ? 'View 1 reply' : 'View all ' + n + ' replies'; },
+      continueThread: function (n) { return n === 1 ? 'Continue this thread (1) ›' : 'Continue this thread (' + n + ') ›'; },
+      formHint: 'Markdown links supported: [text](https://...); nick & email are saved locally',
+      anonymous: 'Anonymous',
+      countLabel: function (n) { return n === 1 ? 'Comment' : 'Comments'; },
+      errNetwork: 'Network error, please try again later',
+      errRate: 'Too many requests, please try again later',
+      errGeneric: 'Failed to post, please try again later',
+      timeJustNow: 'just now',
+      timeMinutesAgo: function (n) { return n === 1 ? '1 minute ago' : n + ' minutes ago'; },
+      timeHoursAgo: function (n) { return n === 1 ? '1 hour ago' : n + ' hours ago'; },
+      timeDaysAgo: function (n) { return n === 1 ? '1 day ago' : n + ' days ago'; }
     }
   };
+
+  /** 浏览器语言探测：zh* → zh-CN，其余 → en（仅 lang:'auto' 时使用） */
+  function detectLangCode() {
+    var nav = global.navigator && (global.navigator.language || global.navigator.userLanguage);
+    return /^zh/i.test(String(nav || '')) ? 'zh-CN' : 'en';
+  }
+
+  /**
+   * 解析 lang 选项为完整字典：
+   * - 缺省 / 'auto'        → 按浏览器语言探测
+   * - 'zh-CN' / 'zh' / 'en' 等 → 内置字典（不认识的代码回退 zh-CN）
+   * - 自定义对象            → 浅合并到自动探测的内置字典上（支持只覆盖个别键）
+   */
+  function resolveLang(opt) {
+    if (opt && typeof opt === 'object') {
+      return Object.assign({}, LANGS[detectLangCode()], opt);
+    }
+    var code = opt || 'auto';
+    if (code === 'auto') code = detectLangCode();
+    if (typeof code === 'string' && /^zh/i.test(code)) code = 'zh-CN';
+    if (typeof code === 'string' && /^en/i.test(code)) code = 'en';
+    return LANGS[code] || LANGS['zh-CN'];
+  }
+
+  // ===== 默认配置 ============================================================
+
+  var DEFAULTS = {
+    el: '#rustaline',                                  // 挂载点（选择器或元素）
+    server: '',                                        // 后端基地址，'' = 同源
+    url: '',                                           // 文章标识，'' = location.pathname
+    placeholder: '',                                   // 评论框占位文案，'' = 跟随语言字典 commentPlaceholder
+    lang: 'auto',                                      // 'auto' | 'zh-CN' | 'en' | 自定义字典对象
+    gravatarCdn: 'https://gravatar.loli.net/avatar/',  // 头像 CDN，可换 https://gravatar.com/avatar/
+    colorPattern: '#2196f3',                           // 主题种子色（#rgb/#rrggbb），派生整套令牌；非法值回落默认蓝
+    darkMode: 'auto'                                   // 'auto'（跟随系统）| 'light' | 'dark'
+  };
+
+  // ===== 主题：种子色派生（零依赖 HSL 近似 Material 3 色调映射） ================
+
+  function clampNum(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+  /** '#rgb' / '#rrggbb'（可省略 #）→ {r,g,b}；非法返回 null */
+  function parseHexColor(input) {
+    var hex = String(input == null ? '' : input).trim().replace(/^#/, '');
+    if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+      hex = hex.charAt(0) + hex.charAt(0) + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2);
+    }
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  }
+
+  /** {r,g,b} → {h:0-360, s:0-100, l:0-100} */
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b);
+    var l = (max + min) / 2;
+    if (max === min) return { h: 0, s: 0, l: l * 100 };
+    var d = max - min;
+    var s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    var h;
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    return { h: h * 60, s: s * 100, l: l * 100 };
+  }
+
+  /** {h,s,l} → '#rrggbb' */
+  function hslToHex(h, s, l) {
+    h = ((h % 360) + 360) % 360; s = clampNum(s, 0, 100) / 100; l = clampNum(l, 0, 100) / 100;
+    var c = (1 - Math.abs(2 * l - 1)) * s;
+    var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    var m = l - c / 2;
+    var rgb;
+    if (h < 60) rgb = [c, x, 0];
+    else if (h < 120) rgb = [x, c, 0];
+    else if (h < 180) rgb = [0, c, x];
+    else if (h < 240) rgb = [0, x, c];
+    else if (h < 300) rgb = [x, 0, c];
+    else rgb = [c, 0, x];
+    var to = function (v) {
+      var n = Math.round((v + m) * 255);
+      return (n < 16 ? '0' : '') + n.toString(16);
+    };
+    return '#' + to(rgb[0]) + to(rgb[1]) + to(rgb[2]);
+  }
+
+  /** {h,s,l} → 'r, g, b'（供 rgba() 阴影拼接） */
+  function hslToRgbCsv(h, s, l) {
+    var hex = hslToHex(h, s, l);
+    var c = parseHexColor(hex);
+    return c.r + ', ' + c.g + ', ' + c.b;
+  }
+
+  /**
+   * 由种子色派生整套颜色令牌，返回 { light: {...}, dark: {...} }。
+   * 彩色令牌保留种子色相/饱和度、按 M3 色调重排明度；
+   * 中性令牌（surface/outline 系）取同一色相、压低饱和度做轻微着色；
+   * error 三件套固定红色，不随种子变化。
+   */
+  function deriveTokens(seedHex) {
+    var rgb = parseHexColor(seedHex);
+    if (!rgb) return null;
+    var hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    var h = hsl.h;
+    var s = clampNum(hsl.s, 30, 90);      // 彩色令牌饱和度：灰种子也能出可读彩色
+    var ns = clampNum(hsl.s * 0.22, 6, 24); // 中性令牌饱和度：轻微色相着色
+    var f = hslToHex;
+
+    var light = {
+      '--rs-primary': f(h, s, 42),
+      '--rs-on-primary': '#ffffff',
+      '--rs-primary-container': f(h, Math.min(s, 92), 90),
+      '--rs-on-primary-container': f(h, s, 12),
+      '--rs-surface': f(h, ns, 98),
+      '--rs-surface-container-lowest': '#ffffff',
+      '--rs-surface-container-low': f(h, ns, 96),
+      '--rs-surface-container': f(h, ns, 93),
+      '--rs-surface-container-high': f(h, ns, 90),
+      '--rs-on-surface': f(h, ns, 12),
+      '--rs-on-surface-variant': f(h, Math.min(ns + 10, 40), 36),
+      '--rs-outline': f(h, Math.min(ns + 6, 30), 48),
+      '--rs-outline-variant': f(h, ns, 85),
+      '--rs-error': '#ba1a1a',
+      '--rs-error-container': '#ffdad6',
+      '--rs-on-error-container': '#410002',
+      '--rs-elevation-1': '0 1px 2px rgba(' + hslToRgbCsv(h, ns, 12) + ', 0.08), 0 1px 3px 1px rgba(' + hslToRgbCsv(h, ns, 12) + ', 0.06)',
+      '--rs-elevation-2': '0 2px 6px 2px rgba(' + hslToRgbCsv(h, ns, 12) + ', 0.10)'
+    };
+    var dark = {
+      '--rs-primary': f(h, s, 80),
+      '--rs-on-primary': f(h, s, 20),
+      '--rs-primary-container': f(h, s, 30),
+      '--rs-on-primary-container': f(h, Math.min(s, 92), 90),
+      '--rs-surface': f(h, ns, 8),
+      '--rs-surface-container-lowest': f(h, ns, 5),
+      '--rs-surface-container-low': f(h, ns, 11),
+      '--rs-surface-container': f(h, ns, 14),
+      '--rs-surface-container-high': f(h, ns, 19),
+      '--rs-on-surface': f(h, ns, 90),
+      '--rs-on-surface-variant': f(h, Math.min(ns + 10, 40), 78),
+      '--rs-outline': f(h, Math.min(ns + 6, 30), 62),
+      '--rs-outline-variant': f(h, ns, 30),
+      '--rs-error': '#ffb4ab',
+      '--rs-error-container': '#93000a',
+      '--rs-on-error-container': '#ffdad6',
+      '--rs-elevation-1': '0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px 1px rgba(0, 0, 0, 0.30)',
+      '--rs-elevation-2': '0 2px 6px 2px rgba(0, 0, 0, 0.45)'
+    };
+    return { light: light, dark: dark };
+  }
+
+  /** 令牌对象 → css 文本（'--rs-x: v;...'） */
+  function tokensToCss(tokens) {
+    var out = '';
+    for (var k in tokens) {
+      if (Object.prototype.hasOwnProperty.call(tokens, k)) out += k + ':' + tokens[k] + ';';
+    }
+    return out;
+  }
 
   // ===== 注入样式（一次性，加 rs- 前缀防污染）================================
 
   var STYLE_TEXT = `
 /* ===== Material 3 视觉令牌（SDK 内置，零依赖，不加载任何字体） ===== */
+/* 默认令牌 = 种子色 #2196f3 经 deriveTokens 派生的淡蓝配色，作为无 JS 派生时的兜底； */
+/* 实例构造时会按 colorPattern 重新派生并以更高优先级（.rs-root.rs-inst-N）覆盖       */
 .rs-root, .rs-root * { box-sizing: border-box; }
 
 .rs-root {
-  --rs-primary: #b45309;
+  --rs-primary: #0b76cb;
   --rs-on-primary: #ffffff;
-  --rs-primary-container: #ffdcc2;
-  --rs-on-primary-container: #311300;
-  --rs-surface: #fdf8f4;
+  --rs-primary-container: #cfe8fc;
+  --rs-on-primary-container: #03223a;
+  --rs-surface: #f9fafb;
   --rs-surface-container-lowest: #ffffff;
-  --rs-surface-container-low: #f8f3ee;
-  --rs-surface-container: #f3ece5;
-  --rs-surface-container-high: #eee4db;
-  --rs-on-surface: #201a17;
-  --rs-on-surface-variant: #57534e;
-  --rs-outline: #85736a;
-  --rs-outline-variant: #d8ccc2;
+  --rs-surface-container-low: #f3f5f7;
+  --rs-surface-container: #eaeef1;
+  --rs-surface-container-high: #e0e6eb;
+  --rs-on-surface: #191f25;
+  --rs-on-surface-variant: #405f77;
+  --rs-outline: #5b7e9a;
+  --rs-outline-variant: #d1dae0;
   --rs-error: #ba1a1a;
   --rs-error-container: #ffdad6;
   --rs-on-error-container: #410002;
-  --rs-font: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
-             -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --rs-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --rs-font: 'Maple Mono NF CN', 'Maple Mono', 'SF Mono', 'JetBrains Mono', 'Fira Code',
+             Consolas, 'Liberation Mono', Menlo, 'Noto Sans Mono CJK SC', 'Noto Sans Mono', Courier, 'Noto Sans CJK SC', 'Source Han Sans CN',
+             'Source Han Sans', '思源黑体 CN', '思源黑体', 'PingFang SC', '微软雅黑', 'Microsoft YaHei',
+             sans-serif;
+  --rs-font-mono: 'Maple Mono NF CN', 'Maple Mono', 'SF Mono', 'JetBrains Mono', 'Fira Code',
+                  Consolas, 'Liberation Mono', Menlo, 'Noto Sans Mono CJK SC', 'Noto Sans Mono', Courier, 'Noto Sans CJK SC', 'Source Han Sans CN',
+                  'Source Han Sans', '思源黑体 CN', '思源黑体', 'PingFang SC', '微软雅黑', 'Microsoft YaHei',
+                  sans-serif;
   --rs-radius: 16px;
   --rs-radius-sm: 12px;
   --rs-radius-xs: 8px;
@@ -98,8 +318,8 @@
   --rs-font-size: 14px;
   --rs-line-height: 1.7;
   --rs-avatar-size: 40px;
-  --rs-elevation-1: 0 1px 2px rgba(32, 26, 23, 0.08), 0 1px 3px 1px rgba(32, 26, 23, 0.06);
-  --rs-elevation-2: 0 2px 6px 2px rgba(32, 26, 23, 0.10);
+  --rs-elevation-1: 0 1px 2px rgba(25, 31, 37, 0.08), 0 1px 3px 1px rgba(25, 31, 37, 0.06);
+  --rs-elevation-2: 0 2px 6px 2px rgba(25, 31, 37, 0.10);
 
   font-family: var(--rs-font);
   font-size: var(--rs-font-size);
@@ -419,28 +639,26 @@
   100% { background-position: -200% 0; }
 }
 
-/* ---- 深色模式 ---- */
-@media (prefers-color-scheme: dark) {
-  .rs-root {
-    --rs-primary: #ffb77c;
-    --rs-on-primary: #502400;
-    --rs-primary-container: #733800;
-    --rs-on-primary-container: #ffdcc2;
-    --rs-surface: #171310;
-    --rs-surface-container-lowest: #0f0c0a;
-    --rs-surface-container-low: #201a17;
-    --rs-surface-container: #251e1a;
-    --rs-surface-container-high: #302720;
-    --rs-on-surface: #ede0d9;
-    --rs-on-surface-variant: #d8ccc2;
-    --rs-outline: #a08d84;
-    --rs-outline-variant: #57534e;
-    --rs-error: #ffb4ab;
-    --rs-error-container: #93000a;
-    --rs-on-error-container: #ffdad6;
-    --rs-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px 1px rgba(0, 0, 0, 0.30);
-    --rs-elevation-2: 0 2px 6px 2px rgba(0, 0, 0, 0.45);
-  }
+/* ---- 深色模式：由 darkMode 参数控制（auto 时 JS 按系统偏好切 rs-dark 类） ---- */
+.rs-root.rs-dark {
+  --rs-primary: #9ed1fa;
+  --rs-on-primary: #053861;
+  --rs-primary-container: #085491;
+  --rs-on-primary-container: #cfe8fc;
+  --rs-surface: #101518;
+  --rs-surface-container-lowest: #0a0d0f;
+  --rs-surface-container-low: #171d22;
+  --rs-surface-container: #1d252b;
+  --rs-surface-container-high: #27323a;
+  --rs-on-surface: #e0e6eb;
+  --rs-on-surface-variant: #b6c9d8;
+  --rs-outline: #85a1b7;
+  --rs-outline-variant: #3d4e5c;
+  --rs-error: #ffb4ab;
+  --rs-error-container: #93000a;
+  --rs-on-error-container: #ffdad6;
+  --rs-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px 1px rgba(0, 0, 0, 0.30);
+  --rs-elevation-2: 0 2px 6px 2px rgba(0, 0, 0, 0.45);
 }
 
 /* ---- 移动端 ---- */
@@ -456,6 +674,9 @@
 `;
 
   var STYLE_ID = 'rs-style-injected';
+
+  // 实例序号：为每个实例生成独立的主题样式类（rs-inst-N），保证多实例配色互不干扰
+  var INSTANCE_SEQ = 0;
 
   function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -513,7 +734,7 @@
       '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">' +
       '<rect width="80" height="80" rx="40" ry="40" fill="' + bg + '"/>' +
       '<text x="50%" y="50%" dy=".35em" text-anchor="middle" ' +
-      'font-family="PingFang SC, Microsoft YaHei, sans-serif" ' +
+      'font-family="\'Maple Mono NF CN\', \'Maple Mono\', \'SF Mono\', \'JetBrains Mono\', \'Fira Code\', Consolas, \'Liberation Mono\', Menlo, \'Noto Sans Mono CJK SC\', \'Noto Sans Mono\', Courier, \'Noto Sans CJK SC\', \'Source Han Sans CN\', \'Source Han Sans\', \'思源黑体 CN\', \'思源黑体\', \'PingFang SC\', \'微软雅黑\', \'Microsoft YaHei\', sans-serif" ' +
       'font-size="' + fontSize + '" font-weight="600" fill="#ffffff">' + escapeXml(initial) + '</text>' +
       '</svg>';
     return 'data:image/svg+xml,' + encodeURIComponent(svg);
@@ -526,7 +747,7 @@
    * - 其他非空字符串 → 视为相对路径，拼 server 前缀
    * - null / 空 → 用昵称生成默认头像
    */
-  function resolveAvatar(avatar, nick, server, gravatarCdn) {
+  function resolveAvatar(avatar, nick, server, gravatarCdn, anonName) {
     if (avatar && /^https?:\/\//i.test(avatar)) return avatar;
     if (avatar && /^[a-f0-9]{32}$/i.test(avatar)) {
       return (gravatarCdn || '') + avatar + '?d=identicon&s=80';
@@ -538,7 +759,7 @@
       // 形如 "path/to/x" 的相对路径
       return (server || '') + '/' + avatar.replace(/^\/+/, '');
     }
-    return defaultAvatar(nick || '匿名');
+    return defaultAvatar(nick || anonName || 'Anonymous');
   }
 
   /** 校验 link 字段：仅允许 http(s):// 前缀，防 javascript: 等协议 */
@@ -555,11 +776,11 @@
   }
 
   /**
-   * 相对时间（中文）：
-   *   < 60s    刚刚
-   *   < 60min  x 分钟前
-   *   < 24h    x 小时前
-   *   < 30d    x 天前
+   * 相对时间（文案取自语言字典，支持单复数函数）：
+   *   < 60s    timeJustNow
+   *   < 60min  timeMinutesAgo
+   *   < 24h    timeHoursAgo
+   *   < 30d    timeDaysAgo
    *   >= 30d   YYYY-MM-DD
    * 未来时间或解析失败 → 原 ISO 截断展示
    */
@@ -572,16 +793,23 @@
     return new Date(iso);
   }
 
-  function formatRelativeTime(iso) {
+  function langVal(lang, key, n) {
+    var v = lang && lang[key];
+    if (typeof v === 'function') return v(n);
+    if (typeof v === 'string') return n != null ? v.replace('%d', n) : v;
+    return '';
+  }
+
+  function formatRelativeTime(iso, lang) {
     if (!iso) return '';
     var t = parseServerTime(iso).getTime();
     if (isNaN(t)) return String(iso).slice(0, 16).replace('T', ' ');
     var diff = (Date.now() - t) / 1000;
     if (diff < 0) return String(iso).slice(0, 16).replace('T', ' '); // 未来时间，退化
-    if (diff < 60) return '刚刚';
-    if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
-    if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
-    if (diff < 2592000) return Math.floor(diff / 86400) + ' 天前';
+    if (diff < 60) return langVal(lang, 'timeJustNow');
+    if (diff < 3600) return langVal(lang, 'timeMinutesAgo', Math.floor(diff / 60));
+    if (diff < 86400) return langVal(lang, 'timeHoursAgo', Math.floor(diff / 3600));
+    if (diff < 2592000) return langVal(lang, 'timeDaysAgo', Math.floor(diff / 86400));
     var d = new Date(t);
     var Y = d.getFullYear();
     var M = String(d.getMonth() + 1).padStart(2, '0');
@@ -658,8 +886,44 @@
     }
     this.opts.server = String(this.opts.server || '').replace(/\/+$/, '');
 
+    // 语言：解析为完整字典（内置 zh-CN/en 或自定义覆盖），placeholder 缺省跟随字典
+    this.lang = resolveLang(this.opts.lang);
+    if (!this.opts.placeholder) this.opts.placeholder = langVal(this.lang, 'commentPlaceholder');
+
     this.el = resolveEl(this.opts.el);
     this.el.classList.add('rs-root');
+
+    // 主题：按 colorPattern 派生令牌注入本实例专属样式（多实例互不干扰）；
+    // 非法种子色返回 null，回落到全局样式表里的默认淡蓝令牌
+    this._themeClass = 'rs-inst-' + (++INSTANCE_SEQ);
+    this.el.classList.add(this._themeClass);
+    this._styleEl = null;
+    var tokens = deriveTokens(this.opts.colorPattern);
+    if (tokens) {
+      this._styleEl = document.createElement('style');
+      this._styleEl.textContent =
+        '.rs-root.' + this._themeClass + '{' + tokensToCss(tokens.light) + '}\n' +
+        '.rs-root.' + this._themeClass + '.rs-dark{' + tokensToCss(tokens.dark) + '}';
+      (document.head || document.documentElement).appendChild(this._styleEl);
+    }
+
+    // 明暗：auto 跟随系统并监听切换；light/dark 强制
+    this._darkMql = null;
+    this._onDarkChange = null;
+    var self = this;
+    var applyDark = function (isDark) { self.el.classList.toggle('rs-dark', !!isDark); };
+    var mode = String(this.opts.darkMode || 'auto').toLowerCase();
+    if (mode === 'dark') {
+      applyDark(true);
+    } else if (mode === 'light') {
+      applyDark(false);
+    } else if (global.matchMedia) {
+      this._darkMql = global.matchMedia('(prefers-color-scheme: dark)');
+      applyDark(this._darkMql.matches);
+      this._onDarkChange = function (e) { applyDark(e.matches); };
+      if (this._darkMql.addEventListener) this._darkMql.addEventListener('change', this._onDarkChange);
+      else if (this._darkMql.addListener) this._darkMql.addListener(this._onDarkChange); // 旧浏览器兜底
+    }
 
     // 内部状态
     this.state = {
@@ -703,6 +967,11 @@
     return this.opts.server + '/api/v1/comments';
   };
 
+  /** 取当前语言文案：字符串支持 %d 数字占位，函数值 fn(n) 处理单复数 */
+  Rustaline.prototype._t = function (key, n) {
+    return langVal(this.lang, key, n);
+  };
+
   Rustaline.prototype._fetchComments = function (page, append) {
     var self = this;
     page = page || 1;
@@ -722,7 +991,7 @@
         return res.json();
       })
       .then(function (data) {
-        var fetched = data && Array.isArray(data.roots) ? data.roots.map(normalizeThread) : [];
+        var fetched = data && Array.isArray(data.roots) ? data.roots.map(function (t) { return normalizeThread(t, self.lang); }) : [];
         if (append) {
           self.state.threads = self.state.threads.concat(fetched);
         } else {
@@ -771,7 +1040,7 @@
             .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
             .then(function (data) {
               lastData = data;
-              var threads = (data && Array.isArray(data.roots)) ? data.roots.map(normalizeThread) : [];
+              var threads = (data && Array.isArray(data.roots)) ? data.roots.map(function (t) { return normalizeThread(t, self.lang); }) : [];
               threads.forEach(function (t) { preserveExpanded(self.state, t); });
               collected = collected.concat(threads);
             });
@@ -808,7 +1077,7 @@
         .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
         .then(function (data) {
           total = (data && typeof data.total === 'number') ? data.total : 0;
-          var list = data && Array.isArray(data.results) ? data.results.map(normalizeComment) : [];
+          var list = data && Array.isArray(data.results) ? data.results.map(function (c) { return normalizeComment(c, self.lang); }) : [];
           collected = collected.concat(list);
           offset += list.length;
           if (list.length === 0) return; // 防空转
@@ -831,11 +1100,11 @@
       });
   };
 
-  function normalizeComment(c) {
+  function normalizeComment(c, lang) {
     return {
       id: String(c.id != null ? c.id : ''),
       comment: String(c.comment != null ? c.comment : ''),
-      nick: String(c.nick != null && c.nick !== '' ? c.nick : '匿名'),
+      nick: String(c.nick != null && c.nick !== '' ? c.nick : langVal(lang, 'anonymous')),
       link: c.link != null ? String(c.link) : null,
       avatar: c.avatar != null ? String(c.avatar) : null,
       url: String(c.url != null ? c.url : ''),
@@ -846,11 +1115,11 @@
   }
 
   /** 服务端 Thread：root 字段与 reply_count/replies 同级平铺 */
-  function normalizeThread(t) {
+  function normalizeThread(t, lang) {
     return {
-      root: normalizeComment(t),
+      root: normalizeComment(t, lang),
       reply_count: typeof t.reply_count === 'number' ? t.reply_count : 0,
-      replies: Array.isArray(t.replies) ? t.replies.map(normalizeComment) : []
+      replies: Array.isArray(t.replies) ? t.replies.map(function (c) { return normalizeComment(c, lang); }) : []
     };
   }
 
@@ -896,7 +1165,7 @@
     // 计数头
     root.appendChild(h('div', { class: 'rs-count' },
       h('span', { class: 'rs-count__num', text: String(this.state.count) }),
-      h('span', { text: '评论' }),
+      h('span', { text: this._t('countLabel', this.state.count) }),
       h('span', { class: 'rs-count__divider' })
     ));
 
@@ -922,7 +1191,7 @@
 
   Rustaline.prototype._buildLoadMore = function () {
     var self = this;
-    var lang = this.opts.lang;
+    var lang = this.lang;
     return h('div', { class: 'rs-load-more' },
       h('button', {
         type: 'button', class: 'rs-btn rs-btn--ghost',
@@ -935,7 +1204,7 @@
 
   Rustaline.prototype._buildForm = function () {
     var self = this;
-    var lang = this.opts.lang;
+    var lang = this.lang;
     var isInReply = !!this.state.replyTo;
     var form = h('form', {
       class: 'rs-form' + (isInReply ? ' rs-form--reply' : ''),
@@ -1011,9 +1280,7 @@
     form.appendChild(hp);
 
     // 操作行
-    var hint = h('span', { class: 'rs-form__hint' },
-      '支持 Markdown 链接 [文字](https://...)；昵称邮箱将记住在本机'
-    );
+    var hint = h('span', { class: 'rs-form__hint' }, this._t('formHint'));
     var submitBtn = h('button', {
       type: 'submit', class: 'rs-btn rs-btn--primary',
       text: this.state.submitting ? lang.submitting : lang.submit,
@@ -1045,11 +1312,11 @@
     var self = this;
     return h('div', { class: 'rs-status rs-status--error' },
       h('span', { class: 'rs-status__icon', html: ICON_RETRY }),
-      h('div', { text: this.opts.lang.error }),
+      h('div', { text: this.lang.error }),
       h('button', {
         type: 'button', class: 'rs-btn rs-btn--ghost',
         style: { marginTop: '12px' },
-        text: this.opts.lang.retry,
+        text: this.lang.retry,
         onclick: function () { self._fetchComments(); }
       })
     );
@@ -1058,7 +1325,7 @@
   Rustaline.prototype._buildEmpty = function () {
     return h('div', { class: 'rs-status' },
       h('span', { class: 'rs-status__icon', html: ICON_EMPTY }),
-      h('div', { text: this.opts.lang.empty })
+      h('div', { text: this.lang.empty })
     );
   };
 
@@ -1118,7 +1385,7 @@
   /** 渲染一楼：root 评论 + 楼内子树 + （回复未拉全时）楼尾「查看全部 N 条回复」 */
   Rustaline.prototype._renderThread = function (thread) {
     var self = this;
-    var lang = this.opts.lang;
+    var lang = this.lang;
 
     // 楼内 id → nick 映射，用于跨层回复的 @ 展示
     var nickOf = Object.create(null);
@@ -1135,7 +1402,7 @@
       li.appendChild(h('div', { class: 'rs-thread__more-wrap' },
         h('button', {
           type: 'button', class: 'rs-thread__more',
-          text: loading ? lang.loading : lang.viewAllReplies.replace('%d', thread.reply_count),
+          text: loading ? lang.loading : this._t('viewAllReplies', thread.reply_count),
           disabled: loading,
           onclick: function () { self._expandThread(thread.root.id); }
         })
@@ -1154,7 +1421,7 @@
     var gravatarCdn = this.opts.gravatarCdn;
 
     // 头像
-    var avatarSrc = resolveAvatar(c.avatar, c.nick, server, gravatarCdn);
+    var avatarSrc = resolveAvatar(c.avatar, c.nick, server, gravatarCdn, langVal(this.lang, 'anonymous'));
     var avatar = h('img', {
       class: 'rs-avatar',
       src: avatarSrc,
@@ -1184,7 +1451,7 @@
       class: 'rs-comment__time',
       datetime: c.inserted_at || '',
       title: c.inserted_at || '',
-      text: formatRelativeTime(c.inserted_at)
+      text: formatRelativeTime(c.inserted_at, this.lang)
     }));
 
     // 内容
@@ -1202,7 +1469,7 @@
     var actions = h('div', { class: 'rs-comment__actions' },
       h('button', {
         type: 'button', class: 'rs-reply-btn',
-        text: this.opts.lang.reply,
+        text: this.lang.reply,
         onclick: function () {
           self.state.replyTo = c;
           self._render();
@@ -1230,7 +1497,7 @@
         li.appendChild(h('div', { class: 'rs-subtree-toggle-wrap' },
           h('button', {
             type: 'button', class: 'rs-subtree-toggle',
-            text: this.opts.lang.continueThread.replace('%d', subtreeSize(entry)),
+            text: this._t('continueThread', subtreeSize(entry)),
             onclick: function () {
               self.state.expandedSubtrees[c.id] = true;
               self._render();
@@ -1265,7 +1532,7 @@
   Rustaline.prototype._handleSubmit = function (form) {
     var self = this;
     var refs = form._rs_refs || {};
-    var lang = this.opts.lang;
+    var lang = this.lang;
 
     var comment = (refs.textarea ? refs.textarea.value : '').trim();
     var nick = (refs.nickInput ? refs.nickInput.value : '').trim();
@@ -1280,9 +1547,9 @@
     // 客户端校验
     if (!comment) return this._showFormError(form, lang.commentRequired);
     if (comment.length > 10000) return this._showFormError(form, lang.commentTooLong);
-    if (mail && !looksLikeMail(mail)) return this._showFormError(form, '邮箱格式不正确');
+    if (mail && !looksLikeMail(mail)) return this._showFormError(form, langVal(lang, 'mailInvalid'));
     var safeLink = link ? safeLinkUrl(link) : null;
-    if (link && !safeLink) return this._showFormError(form, '网址必须以 http:// 或 https:// 开头');
+    if (link && !safeLink) return this._showFormError(form, langVal(lang, 'linkInvalid'));
 
     // 组请求体（与服务端契约严格对齐）
     var body = {
@@ -1305,7 +1572,7 @@
     var optimistic = {
       id: '__optimistic_' + (++OPTIMISTIC_SEQ),
       comment: comment,
-      nick: nick || '匿名',
+      nick: nick || langVal(lang, 'anonymous'),
       link: safeLink || null,
       avatar: null,                       // 让 resolveAvatar 退到默认头像
       url: this.opts.url,
@@ -1395,7 +1662,7 @@
         return res.json();
       })
       .then(function (created) {
-        var real = normalizeComment(created);
+        var real = normalizeComment(created, self.lang);
         // 用真实评论替换乐观占位（保持位置：楼头 / 楼尾）
         if (!replyTarget) {
           for (var i = 0; i < self.state.threads.length; i++) {
@@ -1464,19 +1731,37 @@
     this._fetchComments();
   };
 
-  /** 销毁实例：清空挂载点 */
+  /** 销毁实例：清空挂载点，移除主题样式与系统明暗监听 */
   Rustaline.prototype.destroy = function () {
     this.el.innerHTML = '';
     this.el.classList.remove('rs-root');
+    this.el.classList.remove('rs-dark');
+    if (this._themeClass) this.el.classList.remove(this._themeClass);
+    if (this._darkMql && this._onDarkChange) {
+      if (this._darkMql.removeEventListener) this._darkMql.removeEventListener('change', this._onDarkChange);
+      else if (this._darkMql.removeListener) this._darkMql.removeListener(this._onDarkChange);
+      this._darkMql = null;
+      this._onDarkChange = null;
+    }
+    if (this._styleEl) {
+      this._styleEl.remove();
+      this._styleEl = null;
+    }
     this.el.removeAttribute('data-rs-state');
     this.state.threads = [];
   };
 
   global.Rustaline = Rustaline;
 
+  // 内置语言字典（供二次开发查阅或扩展）
+  Rustaline.langs = LANGS;
+
   // 暴露工具函数到 Rustaline.util 便于二次开发（可选）
   Rustaline.util = {
-    formatRelativeTime: formatRelativeTime,
+    // 保持旧签名：默认 zh-CN 字典；需要其他语言请传第二参数字典
+    formatRelativeTime: function (iso, lang) {
+      return formatRelativeTime(iso, lang || LANGS['zh-CN']);
+    },
     defaultAvatar: defaultAvatar,
     hashString: hashString
   };

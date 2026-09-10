@@ -722,6 +722,58 @@ async fn admin_comment_management() {
 }
 
 #[tokio::test]
+async fn admin_list_filter_from_date() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+
+    // 造一条评论，取其 inserted_at 的日期部分作为 from（与服务端同为 UTC 口径）
+    let (_, created) = call(&app, submit_comment_req("/from", "hello")).await;
+    let inserted = created["inserted_at"].as_str().unwrap().to_owned();
+    let day = &inserted[..10];
+
+    // from = 当天 -> 能查到
+    let (status, body) = call(
+        &app,
+        json_request(
+            "GET",
+            &format!("/api/v1/admin/comments?from={day}"),
+            None,
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 1);
+
+    // from = 未来日期 -> 查不到
+    let (status, body) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/admin/comments?from=2999-01-01",
+            None,
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 0);
+
+    // 非法日期 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/admin/comments?from=not-a-date",
+            None,
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn admin_delete_reparents_children() {
     let app = build_app(None, false).await;
     let token = login(&app).await;

@@ -33,9 +33,12 @@ pub async fn list_admin_comments(
     let result = comment_service::list_admin(
         &state.db,
         &state.config.comment,
-        query.status.as_deref(),
-        query.url.as_deref(),
-        query.keyword.as_deref(),
+        comment_service::AdminListFilter {
+            status: query.status.as_deref(),
+            url: query.url.as_deref(),
+            keyword: query.keyword.as_deref(),
+            from: query.from.as_deref(),
+        },
         page,
         page_size,
     )

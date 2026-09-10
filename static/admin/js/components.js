@@ -2,6 +2,8 @@
 // 安全约定：所有用户输入字符串均通过 textContent / createTextNode 渲染。
 // 静态 SVG 常量只允许出现在本文件的 ICONS 中，禁止拼接任何用户数据。
 
+import { t } from "./i18n.js";
+
 const ICONS = {
   ok: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`,
   err: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>`,
@@ -35,6 +37,36 @@ export function icon(name) {
 
 export function svg(name) {
   return icon(name);
+}
+
+// ---- 涟漪 ----
+// mdui 2 的独立 <mdui-ripple> 组件只暴露 startPress/endPress/... 方法，
+// 不会像按钮类组件那样自动监听宿主事件（实测 pointerdown 后不产生 wave）。
+// 参照其 RippleMixin 的交互手动接线：按压出波 + 鼠标悬停 / 键盘聚焦态层。
+// 宿主要求：position: relative + overflow: hidden（见 admin.css 各涟漪宿主规则）。
+export function attachRipple(host) {
+  const ripple = document.createElement("mdui-ripple");
+  host.appendChild(ripple);
+  const end = () => ripple.endPress();
+  host.addEventListener("pointerdown", (e) => {
+    if (e.button) return; // 只响应主按键
+    ripple.startPress(e);
+    // 松开/取消可能发生在宿主外，挂到 window 上收尾
+    window.addEventListener("pointerup", end, { once: true });
+    window.addEventListener("pointercancel", end, { once: true });
+  });
+  host.addEventListener("pointerenter", (e) => {
+    if (e.pointerType === "mouse") ripple.startHover();
+  });
+  host.addEventListener("pointerleave", (e) => {
+    if (e.pointerType === "mouse") {
+      ripple.endHover();
+      ripple.endPress();
+    }
+  });
+  host.addEventListener("focus", () => ripple.startFocus());
+  host.addEventListener("blur", () => ripple.endFocus());
+  return ripple;
 }
 
 /**
@@ -101,12 +133,17 @@ export function toast({ type = "info", title = "", message = "", duration = 4000
     closeable: false,
   });
 
+  // snackbar 的 message slot 内部是行内格式化上下文（slot 盒才是 host flex 的 item），
+  // 直接把 icon + 文本塞进 slot 会按基线对齐，导致 24px 图标比文字偏高约 7px；
+  // 包一层 flex 行容器，让图标与文字始终垂直居中对齐
+  const row = el("span", {
+    style: { display: "flex", alignItems: "center", gap: "10px", width: "100%", minWidth: "0" },
+  });
   const iconNode = icon(type === "ok" ? "ok" : type === "err" ? "err" : type === "warn" ? "warn" : "info");
-  iconNode.style.marginRight = "10px";
   iconNode.style.flex = "0 0 auto";
   if (type === "err") iconNode.style.color = "rgb(var(--mdui-color-error))";
   else if (type === "warn") iconNode.style.color = "#f59e0b";
-  snackbar.appendChild(iconNode);
+  row.appendChild(iconNode);
 
   const body = el("span", { style: { flex: "1 1 auto", minWidth: "0" } });
   if (title) {
@@ -114,7 +151,8 @@ export function toast({ type = "info", title = "", message = "", duration = 4000
     body.appendChild(t);
   }
   if (message) body.appendChild(document.createTextNode(message));
-  snackbar.appendChild(body);
+  row.appendChild(body);
+  snackbar.appendChild(row);
   document.body.appendChild(snackbar);
 
   let dismissed = false;
@@ -143,10 +181,10 @@ export function toastInfo(title, message) {
 // ---- Status Badge ----
 export function badge(status) {
   const label =
-    status === "approved" ? "已通过"
-    : status === "pending" ? "待审核"
-    : status === "spam" ? "垃圾"
-    : status || "未知";
+    status === "approved" ? t("status.approved")
+    : status === "pending" ? t("status.pending")
+    : status === "spam" ? t("status.spam")
+    : status || t("status.unknown");
   const cls = ["approved", "pending", "spam"].includes(status) ? status : "neutral";
   return el("span", {
     class: `status-chip status-chip--${cls}`,
@@ -188,7 +226,7 @@ function initial(nick) {
 }
 
 // ---- 空状态 ----
-export function emptyState({ title = "暂无数据", hint = "", icon: iconName = "empty" } = {}) {
+export function emptyState({ title = t("common.empty"), hint = "", icon: iconName = "empty" } = {}) {
   const wrap = el("div", { class: "empty" });
   const ico = el("div", { class: "empty__icon" }, icon(iconName));
   const t = el("div", { class: "empty__title", text: title });
@@ -199,7 +237,7 @@ export function emptyState({ title = "暂无数据", hint = "", icon: iconName =
 }
 
 // ---- 加载占位 ----
-export function loadingScreen(text = "加载中…") {
+export function loadingScreen(text = t("common.loading")) {
   return el(
     "div",
     { class: "loading-screen" },
@@ -238,11 +276,14 @@ export function pagination({ page, page_size, total, onChange }) {
   const from = total === 0 ? 0 : (cur - 1) * page_size + 1;
   const to = Math.min(total, cur * page_size);
 
-  wrap.appendChild(el("span", { class: "pagination__info", text: total === 0 ? "无记录" : `${from}–${to} / 共 ${total} 条` }));
+  wrap.appendChild(el("span", {
+    class: "pagination__info",
+    text: total === 0 ? t("common.noRecords") : t("common.pageInfo", { from, to, total }),
+  }));
 
   const prev = el("mdui-button-icon", {
     disabled: cur === 1,
-    attrs: { "aria-label": "上一页" },
+    attrs: { "aria-label": t("common.prevPage") },
     onClick: () => onChange(cur - 1),
   }, icon("chevron-left"));
   wrap.appendChild(prev);
@@ -264,7 +305,7 @@ export function pagination({ page, page_size, total, onChange }) {
 
   const next = el("mdui-button-icon", {
     disabled: cur === totalPages,
-    attrs: { "aria-label": "下一页" },
+    attrs: { "aria-label": t("common.nextPage") },
     onClick: () => onChange(cur + 1),
   }, icon("chevron-right"));
   wrap.appendChild(next);
@@ -289,11 +330,11 @@ function pageList(cur, total) {
 
 // ---- 确认对话框 ----
 export function confirmDialog({
-  title = "确认操作",
+  title = t("common.confirmTitle"),
   bodyText = "",
   bodyNode = null,
-  confirmText = "确定",
-  cancelText = "取消",
+  confirmText = t("common.ok"),
+  cancelText = t("common.cancel"),
   danger = false,
 } = {}) {
   return new Promise((resolve) => {
@@ -345,7 +386,7 @@ export function confirmDialog({
 }
 
 // ---- 详情对话框 ----
-export function openDetailDialog({ title = "详情", renderBody }) {
+export function openDetailDialog({ title = t("common.detail"), renderBody }) {
   const dialog = el("mdui-dialog", {
     class: "detail",
     headline: title,
@@ -409,9 +450,9 @@ export function formatRelative(input) {
   if (isNaN(d.getTime())) return "";
   const diff = Date.now() - d.getTime();
   const sec = Math.floor(diff / 1000);
-  if (sec < 60) return `${sec} 秒前`;
-  if (sec < 3600) return `${Math.floor(sec / 60)} 分钟前`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)} 小时前`;
-  if (sec < 2592000) return `${Math.floor(sec / 86400)} 天前`;
+  if (sec < 60) return t("time.secondsAgo", sec);
+  if (sec < 3600) return t("time.minutesAgo", Math.floor(sec / 60));
+  if (sec < 86400) return t("time.hoursAgo", Math.floor(sec / 3600));
+  if (sec < 2592000) return t("time.daysAgo", Math.floor(sec / 86400));
   return formatTime(input);
 }

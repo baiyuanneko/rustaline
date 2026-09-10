@@ -9,12 +9,14 @@ bynrust26/
 ├── Cargo.toml            # workspace 根，[workspace.dependencies] 统一版本
 ├── config/default.toml   # 默认配置（local.toml 为本机覆盖，已 gitignore）
 ├── static/               # 静态文件目录，ServeDir 兜底挂载于根路径（目录请求返回 index.html）
-│   ├── index.html        # rustaline 评论系统演示主页（mdui 风格，引入 sdk/rustaline.js）
-│   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示）
+│   ├── index.html        # rustaline 评论系统演示主页（mdui 风格，引入 sdk/rustaline.js；中英双语 data-i18n 标记）
+│   ├── index-i18n.js     # 演示页 i18n：独立小字典（zh-CN/en）+ data-i18n 填充 + 右上角语言切换按钮
+│   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示，仅中文）
 │   ├── theme.js          # mdui 主题初始化（默认种子色 #2196f3 Material 蓝；主题色与明暗模式 light/dark/auto 均持久化于 localStorage，页面侧经 window.rustalineTheme 读写）
 │   ├── vendor/mdui/      # 本地 vendor 的 mdui 2.1.5（mdui.global.js / mdui.css / LICENSE / SHA256SUMS）
-│   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，Material 3 视觉，全局 Rustaline 类，支持多实例
-│   └── admin/            # 管理面板：原生 ES Modules SPA（hash 路由）+ mdui Web Components
+│   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，Material 3 视觉，全局 Rustaline 类，支持多实例；内置 zh-CN/en 双字典（lang 参数 / Rustaline.langs）；配色由 colorPattern 种子色派生（默认 #2196f3 淡蓝），darkMode 控制明暗（默认 auto 跟随系统）
+│   └── admin/            # 管理面板：原生 ES Modules SPA（hash 路由）+ mdui Web Components，中英双语
+│       ├── js/i18n.js    # 运行期字典 + t() + applyStaticTexts()（[data-i18n] 填充），语言判定 localStorage rustaline-lang > navigator.language
 │       └── js/views/     # login / dashboard / comments / import / settings
 ├── migration/            # sea-orm-migration 独立 crate（CLI + Migrator）
 │   └── src/m*_*.rs       # 迁移文件，按时间戳命名并注册进 lib.rs 的 Migrator
@@ -90,6 +92,7 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - 密码只存 argon2 哈希（管理员密码也仅以哈希形式入库）；任何响应不得包含密码或哈希字段。
 - `static/sdk/rustaline.js` 保持**零依赖单文件**：原生 JS IIFE，不引框架 / CDN / npm / 字体；仅使用内置 Material 3 CSS 令牌。
 - 官网与管理面板使用**本地 vendor 的 mdui**（见下方「mdui vendor 管理」），不引 CDN、不引入 npm 运行时；面板仍为原生 ES Modules，无构建步骤。
+- 前端三端（SDK / 管理面板 / 演示页）中英双语：新增界面文案一律走字典 key（SDK 内置 `LANGS`、面板 `admin/js/i18n.js` 的 `DICTS`、演示页 `index-i18n.js` 的 `DICTS`），禁止硬编码单一语言字符串；新增语言 = 补一个同构字典对象。语言偏好统一持久化于 localStorage `rustaline-lang`；后端 API 错误 message 保持英文不翻。
 - 所有用户内容一律 `textContent` / `createTextNode` 渲染防 XSS，禁止 innerHTML 拼接用户数据；静态 SVG 常量可例外，但必须固定写死在本文件内。
 - 依赖版本统一改根 `Cargo.toml` 的 `[workspace.dependencies]`，成员 crate 用 `xxx.workspace = true` 引用。
 - 完成改动后必须跑通：`cargo build`、`cargo test`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`。

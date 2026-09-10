@@ -1,6 +1,6 @@
 //! 评论领域逻辑：URL 归一化、头像推导、树关系校验、审核状态管理、stats 聚合。
 
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
@@ -36,6 +36,9 @@ pub(crate) const MAX_LINK_LEN: usize = 255;
 pub(crate) const MAX_QQ_AVATAR_LEN: usize = 255;
 pub(crate) const MAX_IP_LEN: usize = 64;
 pub(crate) const MAX_UA_LEN: usize = 512;
+
+/// stats URL 热度排行返回条数上限（前端仪表盘只展示前 10，评论管理 URL 筛选共用此列表）
+const URL_RANK_LIMIT: u64 = 30;
 
 /// 可选字段长度校验：非空且超长时返回 400
 fn check_len(field: &str, value: &Option<String>, max: usize) -> Result<(), AppError> {
@@ -302,29 +305,45 @@ pub async fn create_comment(
     Ok(public_dto_from_model(model, &config.avatar_cdn))
 }
 
+/// list_admin 的过滤条件打包（status/url/keyword/from），避免参数膨胀
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AdminListFilter<'a> {
+    pub status: Option<&'a str>,
+    pub url: Option<&'a str>,
+    pub keyword: Option<&'a str>,
+    /// 起始日期（YYYY-MM-DD，UTC 零点起算），非法格式返回 400
+    pub from: Option<&'a str>,
+}
+
 pub async fn list_admin(
     db: &DatabaseConnection,
     config: &CommentConfig,
-    status: Option<&str>,
-    url: Option<&str>,
-    keyword: Option<&str>,
+    filter: AdminListFilter<'_>,
     page: u64,
     page_size: u64,
 ) -> Result<AdminCommentListResponse, AppError> {
     let mut query = comments::Entity::find();
-    if let Some(s) = status.filter(|s| !s.is_empty()) {
+    if let Some(s) = filter.status.filter(|s| !s.is_empty()) {
         query = query.filter(comments::Column::Status.eq(s));
     }
-    if let Some(u) = url.filter(|s| !s.is_empty()) {
+    if let Some(u) = filter.url.filter(|s| !s.is_empty()) {
         query = query.filter(comments::Column::Url.eq(normalize_url(u)));
     }
-    if let Some(kw) = keyword.filter(|s| !s.is_empty()) {
+    if let Some(kw) = filter.keyword.filter(|s| !s.is_empty()) {
         let pat = format!("%{kw}%");
         query = query.filter(
             Condition::any()
                 .add(comments::Column::Nick.like(&pat))
                 .add(comments::Column::Comment.like(&pat))
                 .add(comments::Column::Mail.like(&pat)),
+        );
+    }
+    // from：YYYY-MM-DD（UTC 零点起算），与 stats 的 today_new 同口径
+    if let Some(f) = filter.from.filter(|s| !s.is_empty()) {
+        let date = NaiveDate::parse_from_str(f, "%Y-%m-%d")
+            .map_err(|_| AppError::BadRequest("from must be a YYYY-MM-DD date".into()))?;
+        query = query.filter(
+            comments::Column::InsertedAt.gte(date.and_hms_opt(0, 0, 0).unwrap_or_default()),
         );
     }
 
@@ -443,7 +462,7 @@ pub async fn get_stats(db: &DatabaseConnection) -> Result<CommentStatsResponse, 
         .expr_as(count_expr.clone(), "count")
         .group_by(comments::Column::Url)
         .order_by(count_expr, sea_orm::sea_query::Order::Desc)
-        .limit(100)
+        .limit(URL_RANK_LIMIT)
         .into_model::<UrlCountRow>()
         .all(db)
         .await?;

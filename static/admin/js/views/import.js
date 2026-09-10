@@ -1,5 +1,6 @@
 import { importValineBatch } from "../api.js";
 import { toastOk, toastErr, toastInfo, confirmDialog, icon, el } from "../components.js";
+import { t } from "../i18n.js";
 
 const BATCH_SIZE = 500;
 const ACCEPT_TYPES = ["application/json", "text/plain", "text/json"];
@@ -20,8 +21,8 @@ export async function render(container) {
 function pageHead() {
   const head = el("div", { class: "page-head" });
   const titles = el("div", { class: "page-head__titles" });
-  titles.appendChild(el("h1", { class: "page-title", text: "Valine 数据导入" }));
-  titles.appendChild(el("div", { class: "page-subtitle", text: "支持 LeanCloud 导出 JSON：分批上传、实时进度、汇总报告" }));
+  titles.appendChild(el("h1", { class: "page-title", text: t("import.title") }));
+  titles.appendChild(el("div", { class: "page-subtitle", text: t("import.subtitle") }));
   head.appendChild(titles);
   return head;
 }
@@ -30,10 +31,10 @@ function buildDropzoneCard() {
   const card = el("mdui-card", { class: "page-card" });
   const body = el("div", { class: "page-card__body" });
 
-  const dz = el("div", { class: "dropzone", tabIndex: 0, role: "button", attrs: { "aria-label": "选择或拖入 JSON 文件" } });
+  const dz = el("div", { class: "dropzone", tabIndex: 0, role: "button", attrs: { "aria-label": t("import.dropzoneLabel") } });
   dz.appendChild(el("div", { class: "dropzone__icon" }, icon("upload")));
-  dz.appendChild(el("div", { class: "dropzone__title", text: "点击选择 JSON 文件，或拖入此处" }));
-  dz.appendChild(el("div", { class: "dropzone__hint", text: `支持 .json；每批 ${BATCH_SIZE} 条顺序上传，可处理十万级数据` }));
+  dz.appendChild(el("div", { class: "dropzone__title", text: t("import.dropzoneTitle") }));
+  dz.appendChild(el("div", { class: "dropzone__hint", text: t("import.dropzoneHint", { batch: BATCH_SIZE }) }));
 
   const fileInput = el("input", { type: "file", accept: ".json,application/json,text/json,text/plain", style: { display: "none" } });
   body.appendChild(fileInput);
@@ -80,14 +81,14 @@ function buildDropzoneCard() {
 function buildPasteCard() {
   const card = el("mdui-card", { class: "page-card" });
   const header = el("div", { class: "page-card__header" });
-  header.appendChild(el("div", { class: "page-card__title", text: "或粘贴 JSON 内容" }));
+  header.appendChild(el("div", { class: "page-card__title", text: t("import.pasteTitle") }));
   card.appendChild(header);
 
   const body = el("div", { class: "page-card__body" });
   const ta = el("mdui-text-field", {
     id: "paste-textarea",
     variant: "filled",
-    label: "JSON 内容",
+    label: t("import.jsonContent"),
     placeholder: '[\n  { "objectId": "...", "comment": "...", "nick": "..." }\n]\n或\n{ "results": [ ... ] }',
     rows: 6,
     autosize: true,
@@ -97,24 +98,24 @@ function buildPasteCard() {
   body.appendChild(ta);
 
   const actions = el("div", { style: { marginTop: "14px", display: "flex", gap: "8px", flexWrap: "wrap" } });
-  const parseBtn = el("mdui-button", { variant: "tonal", text: "解析粘贴内容" });
+  const parseBtn = el("mdui-button", { variant: "tonal", text: t("import.parse") });
   parseBtn.addEventListener("click", () => {
     const text = String(ta.value || "").trim();
     if (!text) {
-      toastErr("无内容", "请粘贴 JSON 文本");
+      toastErr(t("import.noContent"), t("import.noContentMsg"));
       return;
     }
     try {
       const data = JSON.parse(text);
       const items = normalizeResults(data);
       if (items.length === 0) {
-        toastErr("无有效数据", "解析结果为空数组");
+        toastErr(t("import.noValidData"), t("import.emptyResult"));
         return;
       }
-      stageImport(items, "粘贴内容");
+      stageImport(items, t("import.pasteSource"));
     } catch (err) {
       const pos = locateJsonError(text, err);
-      toastErr("JSON 解析失败", pos ? `位置 ${pos}：${err.message}` : err.message);
+      toastErr(t("import.parseFailed"), pos ? t("import.parseErrorPos", { pos, msg: err.message }) : err.message);
     }
   });
   actions.appendChild(parseBtn);
@@ -129,17 +130,17 @@ function buildProgressCard() {
 
   const header = el("div", { class: "page-card__header" });
   const titleBox = el("div");
-  titleBox.appendChild(el("div", { class: "page-card__title", text: "导入进度" }));
+  titleBox.appendChild(el("div", { class: "page-card__title", text: t("import.progressTitle") }));
   header.appendChild(titleBox);
 
-  const cancelBtn = el("mdui-button", { variant: "outlined", id: "cancel-import", text: "取消" });
+  const cancelBtn = el("mdui-button", { variant: "outlined", id: "cancel-import", text: t("common.cancel") });
   cancelBtn.addEventListener("click", async () => {
     if (!taskState.running) return;
     const result = await confirmDialog({
-      title: "确认取消剩余批次导入？",
-      bodyText: "已完成批次不会回滚。",
-      confirmText: "取消导入",
-      cancelText: "继续导入",
+      title: t("import.cancelConfirmTitle"),
+      bodyText: t("import.cancelConfirmBody"),
+      confirmText: t("import.cancelConfirm"),
+      cancelText: t("import.cancelAbort"),
       danger: true,
     });
     if (result !== "confirm") return;
@@ -153,11 +154,11 @@ function buildProgressCard() {
   body.appendChild(bar);
 
   const meta = el("div", { class: "progress-meta" });
-  meta.appendChild(el("span", { id: "progress-meta-left", text: "准备中…" }));
+  meta.appendChild(el("span", { id: "progress-meta-left", text: t("import.preparing") }));
   meta.appendChild(el("span", { id: "progress-meta-right", text: "0 / 0" }));
   body.appendChild(meta);
 
-  body.appendChild(el("div", { class: "page-card__subtitle", style: { marginTop: "16px" }, text: "批次日志" }));
+  body.appendChild(el("div", { class: "page-card__subtitle", style: { marginTop: "16px" }, text: t("import.batchLog") }));
   const log = el("div", { class: "log", id: "import-log" });
   body.appendChild(log);
   card.appendChild(body);
@@ -169,10 +170,10 @@ function buildReportCard() {
 
   const header = el("div", { class: "page-card__header" });
   const titleBox = el("div");
-  titleBox.appendChild(el("div", { class: "page-card__title", text: "导入汇总报告" }));
+  titleBox.appendChild(el("div", { class: "page-card__title", text: t("import.reportTitle") }));
   header.appendChild(titleBox);
 
-  const closeBtn = el("mdui-button", { variant: "outlined", text: "清除" });
+  const closeBtn = el("mdui-button", { variant: "outlined", text: t("import.clear") });
   closeBtn.addEventListener("click", () => {
     card.hidden = true;
   });
@@ -183,7 +184,7 @@ function buildReportCard() {
   body.appendChild(el("div", { class: "report-grid", id: "report-grid" }));
 
   const details = el("details", { class: "details" });
-  details.appendChild(el("summary", { class: "details__summary", text: "错误明细（前 20 条）" }));
+  details.appendChild(el("summary", { class: "details__summary", text: t("import.errorDetails") }));
   const detailBody = el("div", { class: "details__body", id: "report-errors" });
   details.appendChild(detailBody);
   body.appendChild(details);
@@ -194,33 +195,33 @@ function buildReportCard() {
 // ---- 文件处理 ----
 function handleFile(file) {
   if (!ACCEPT_TYPES.includes(file.type) && !/\.(json|txt)$/i.test(file.name)) {
-    const msg = `文件类型 ${file.type || "未知"} 不被支持，请选择 JSON 文件`;
+    const msg = t("import.unsupportedTypeMsg", { type: file.type || t("import.unknownType") });
     setStatus(msg, true);
-    toastErr("文件类型不支持", msg);
+    toastErr(t("import.unsupportedType"), msg);
     return;
   }
 
-  setStatus(`正在读取 ${file.name}（${formatSize(file.size)}）…`);
+  setStatus(t("import.reading", { name: file.name, size: formatSize(file.size) }));
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const data = JSON.parse(String(reader.result));
       const items = normalizeResults(data);
       if (items.length === 0) {
-        setStatus("解析结果为空数组", true);
-        toastErr("无可导入数据", "JSON 中未找到 results 数组或顶层并非数组");
+        setStatus(t("import.emptyResult"), true);
+        toastErr(t("import.noImportable"), t("import.noResultsMsg"));
         return;
       }
-      setStatus(`已解析 ${items.length} 条记录，准备导入…`);
+      setStatus(t("import.parsed", { n: items.length }));
       stageImport(items, file.name);
     } catch (err) {
-      setStatus(`解析失败：${err.message}`, true);
-      toastErr("JSON 解析失败", err.message);
+      setStatus(t("import.parseErrorMsg", { msg: err.message }), true);
+      toastErr(t("import.parseFailed"), err.message);
     }
   };
   reader.onerror = () => {
-    setStatus("文件读取失败", true);
-    toastErr("读取失败", "FileReader 错误");
+    setStatus(t("import.readFailed"), true);
+    toastErr(t("import.readFailed"), t("import.fileReaderError"));
   };
   reader.readAsText(file, "utf-8");
 }
@@ -244,7 +245,7 @@ function locateJsonError(text, err) {
     const pos = Number(m[1]);
     const before = text.slice(0, pos);
     const line = before.split("\n").length;
-    return `行 ${line}`;
+    return t("import.errorLine", { line });
   }
   return "";
 }
@@ -256,8 +257,8 @@ function stageImport(items, source) {
   staged = { items, source };
   const total = items.length;
   const batches = Math.ceil(total / BATCH_SIZE);
-  toastInfo("解析完成", `共 ${total} 条，将分 ${batches} 批导入（来源：${source}）`);
-  setStatus(`已暂存 ${total} 条 / ${batches} 批（来源：${source}）。向下滚动点击「开始导入」`);
+  toastInfo(t("import.parseDone"), t("import.batchPlan", { total, batches, source }));
+  setStatus(t("import.stagedMsg", { total, batches, source }));
 
   const dropzone = document.querySelector(".dropzone");
   if (dropzone) {
@@ -268,12 +269,12 @@ function stageImport(items, source) {
         variant: "filled",
         id: "start-import-btn",
         style: { marginTop: "14px" },
-        text: `开始导入（${total} 条）`,
+        text: t("import.startImport", { total }),
       });
       startBtn.addEventListener("click", () => runImport());
       (dzBody || dropzone.parentNode).appendChild(startBtn);
     } else {
-      startBtn.textContent = `开始导入（${total} 条）`;
+      startBtn.textContent = t("import.startImport", { total });
     }
   }
 }
@@ -297,11 +298,11 @@ async function runImport() {
   reportCard.hidden = true;
   log.replaceChildren();
   bar.value = 0;
-  left.textContent = "导入中…";
+  left.textContent = t("import.importing");
   right.textContent = `0 / ${batches.length}`;
   if (startBtn) {
     startBtn.disabled = true;
-    startBtn.textContent = "导入中…";
+    startBtn.textContent = t("import.importing");
   }
 
   taskState.running = true;
@@ -311,18 +312,18 @@ async function runImport() {
   const agg = { total, imported: 0, duplicates: 0, invalid: 0, errors: [] };
   let cancelled = false;
 
-  appendLog(log, "info", `开始导入 ${total} 条 / ${batches.length} 批`);
+  appendLog(log, "info", t("import.logStart", { total, batches: batches.length }));
 
   for (let i = 0; i < batches.length; i++) {
     if (controller.signal.aborted) {
       cancelled = true;
-      appendLog(log, "warn", `用户取消，跳过第 ${i + 1} 批及之后 ${batches.length - i} 批`);
+      appendLog(log, "warn", t("import.logCancelled", { from: i + 1, left: batches.length - i }));
       break;
     }
 
     const batch = batches[i];
     const batchStart = Date.now();
-    appendLog(log, "info", `→ 第 ${i + 1} / ${batches.length} 批（${batch.length} 条）`);
+    appendLog(log, "info", t("import.logBatchStart", { index: i + 1, total: batches.length, size: batch.length }));
     try {
       const r = await importValineBatch(batch, controller.signal);
       const report = r || {};
@@ -330,55 +331,66 @@ async function runImport() {
       agg.duplicates += report.skipped_duplicates || 0;
       agg.invalid += report.skipped_invalid || 0;
       if (Array.isArray(report.errors)) {
-        agg.errors.push(...report.errors.map((e) => `[批次 ${i + 1}] ${e}`));
+        agg.errors.push(...report.errors.map((e) => `${t("import.batchTag", { index: i + 1 })} ${e}`));
       }
       appendLog(
         log,
         report.errors && report.errors.length > 0 ? "warn" : "ok",
-        `✓ 第 ${i + 1} 批完成：导入 ${report.imported || 0} / 重复 ${report.skipped_duplicates || 0} / 无效 ${report.skipped_invalid || 0}（耗时 ${Date.now() - batchStart}ms）`
+        t("import.logBatchDone", {
+          index: i + 1,
+          imported: report.imported || 0,
+          duplicates: report.skipped_duplicates || 0,
+          invalid: report.skipped_invalid || 0,
+          ms: Date.now() - batchStart,
+        })
       );
     } catch (err) {
       if (err.name === "AbortError") {
         cancelled = true;
-        appendLog(log, "warn", `第 ${i + 1} 批已取消`);
+        appendLog(log, "warn", t("import.logBatchCancelled", { index: i + 1 }));
         break;
       }
-      agg.errors.push(`[批次 ${i + 1}] ${err.message || err}`);
-      appendLog(log, "err", `✗ 第 ${i + 1} 批失败：${err.message || err}`);
+      agg.errors.push(`${t("import.batchTag", { index: i + 1 })} ${err.message || err}`);
+      appendLog(log, "err", t("import.logBatchFailed", { index: i + 1, msg: err.message || err }));
     }
 
     const done = i + 1;
     const pct = Math.round((done / batches.length) * 100);
     bar.value = pct;
-    left.textContent = cancelled ? "已取消" : `${pct}%`;
+    left.textContent = cancelled ? t("import.cancelled") : `${pct}%`;
     right.textContent = `${done} / ${batches.length}`;
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
   if (cancelled) {
-    left.textContent = "已取消";
+    left.textContent = t("import.cancelled");
   } else {
     bar.value = 100;
-    left.textContent = "完成";
+    left.textContent = t("import.done");
   }
 
   taskState.running = false;
   taskState.abort = null;
   if (startBtn) {
     startBtn.disabled = false;
-    startBtn.textContent = "重新导入";
+    startBtn.textContent = t("import.reimport");
   }
 
   showReport(agg, cancelled);
   appendLog(
     log,
     cancelled ? "warn" : "ok",
-    `导入结束：成功 ${agg.imported} / 重复 ${agg.duplicates} / 无效 ${agg.invalid} / 错误 ${agg.errors.length}`
+    t("import.logEnd", {
+      imported: agg.imported,
+      duplicates: agg.duplicates,
+      invalid: agg.invalid,
+      errors: agg.errors.length,
+    })
   );
   if (cancelled) {
-    toastInfo("已取消", `已停止剩余批次。本次成功导入 ${agg.imported} 条`);
+    toastInfo(t("import.cancelledToast"), t("import.cancelledToastMsg", { imported: agg.imported }));
   } else {
-    toastOk("导入完成", `成功 ${agg.imported} 条，重复跳过 ${agg.duplicates} 条`);
+    toastOk(t("import.doneToast"), t("import.doneToastMsg", { imported: agg.imported, duplicates: agg.duplicates }));
   }
 }
 
@@ -392,14 +404,14 @@ function showReport(agg, cancelled) {
   errBody.replaceChildren();
 
   const cells = [
-    { label: "总记录数", value: agg.total, cls: "" },
-    { label: "成功导入", value: agg.imported, cls: "report-cell--ok" },
-    { label: "重复跳过", value: agg.duplicates, cls: "report-cell--warn" },
-    { label: "无效跳过", value: agg.invalid, cls: "report-cell--warn" },
-    { label: "错误明细", value: agg.errors.length, cls: agg.errors.length > 0 ? "report-cell--danger" : "" },
+    { label: t("report.total"), value: agg.total, cls: "" },
+    { label: t("report.imported"), value: agg.imported, cls: "report-cell--ok" },
+    { label: t("report.duplicates"), value: agg.duplicates, cls: "report-cell--warn" },
+    { label: t("report.invalid"), value: agg.invalid, cls: "report-cell--warn" },
+    { label: t("report.errors"), value: agg.errors.length, cls: agg.errors.length > 0 ? "report-cell--danger" : "" },
   ];
   if (cancelled) {
-    cells.push({ label: "状态", value: "已取消", cls: "report-cell--warn" });
+    cells.push({ label: t("report.status"), value: t("import.cancelled"), cls: "report-cell--warn" });
   }
 
   for (const c of cells) {
@@ -413,14 +425,14 @@ function showReport(agg, cancelled) {
   }
 
   if (agg.errors.length === 0) {
-    errBody.appendChild(el("p", { text: "无错误", style: { margin: "8px 0", fontSize: "13px" } }));
+    errBody.appendChild(el("p", { text: t("report.noErrors"), style: { margin: "8px 0", fontSize: "13px" } }));
   } else {
     agg.errors.slice(0, 20).forEach((e) => {
       errBody.appendChild(el("p", { text: e, style: { margin: "6px 0", fontSize: "13px" } }));
     });
     if (agg.errors.length > 20) {
       errBody.appendChild(el("p", {
-        text: `… 还有 ${agg.errors.length - 20} 条未显示`,
+        text: t("report.moreErrors", { n: agg.errors.length - 20 }),
         style: { margin: "6px 0", fontSize: "13px", color: "rgb(var(--mdui-color-on-surface-variant))" },
       }));
     }
