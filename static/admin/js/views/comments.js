@@ -4,6 +4,7 @@ import {
   patchComment,
   deleteComment,
 } from "../api.js";
+import { renderMarkdown } from "../markdown.js";
 import {
   badge,
   avatar,
@@ -512,7 +513,14 @@ function openDetail(item) {
       head.appendChild(statusBadgeEl);
       body.appendChild(head);
 
-      body.appendChild(el("div", { class: "detail__comment", text: item.comment || t("comments.emptyComment") }));
+      // 评论正文走极简 Markdown 渲染（纯 DOM 构建，无 XSS 面）；列表单元格保持纯文本预览
+      const commentBox = el("div", { class: "detail__comment" });
+      commentBox.appendChild(renderMarkdown(item.comment || t("comments.emptyComment"), {
+        image: t("comments.mdImage"),
+        imageError: t("comments.mdImageError"),
+        close: t("common.close"),
+      }));
+      body.appendChild(commentBox);
 
       body.appendChild(detailRow(t("detail.commentId"), item.id || "—", true));
       body.appendChild(detailRow(t("detail.url"), item.url || "—", true));

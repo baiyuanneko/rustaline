@@ -17,6 +17,7 @@ bynrust26/
 │   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，Material 3 视觉，全局 Rustaline 类，支持多实例；内置 zh-CN/en 双字典（lang 参数 / Rustaline.langs）；配色由 colorPattern 种子色派生（默认 #2196f3 淡蓝），darkMode 控制明暗（默认 auto 跟随系统）
 │   └── admin/            # 管理面板：原生 ES Modules SPA（hash 路由）+ mdui Web Components，中英双语
 │       ├── js/i18n.js    # 运行期字典 + t() + applyStaticTexts()（[data-i18n] 填充），语言判定 localStorage rustaline-lang > navigator.language
+│       ├── js/markdown.js# 极简 Markdown 子集渲染（与 SDK 内 renderMarkdown 同构，纯 DOM 构建）
 │       └── js/views/     # login / dashboard / comments / import / settings
 ├── migration/            # sea-orm-migration 独立 crate（CLI + Migrator）
 │   └── src/m*_*.rs       # 迁移文件，按时间戳命名并注册进 lib.rs 的 Migrator
@@ -93,6 +94,6 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - `static/sdk/rustaline.js` 保持**零依赖单文件**：原生 JS IIFE，不引框架 / CDN / npm / 字体；仅使用内置 Material 3 CSS 令牌。
 - 官网与管理面板使用**本地 vendor 的 mdui**（见下方「mdui vendor 管理」），不引 CDN、不引入 npm 运行时；面板仍为原生 ES Modules，无构建步骤。
 - 前端三端（SDK / 管理面板 / 演示页）中英双语：新增界面文案一律走字典 key（SDK 内置 `LANGS`、面板 `admin/js/i18n.js` 的 `DICTS`、演示页 `index-i18n.js` 的 `DICTS`），禁止硬编码单一语言字符串；新增语言 = 补一个同构字典对象。语言偏好统一持久化于 localStorage `rustaline-lang`；后端 API 错误 message 保持英文不翻。
-- 所有用户内容一律 `textContent` / `createTextNode` 渲染防 XSS，禁止 innerHTML 拼接用户数据；静态 SVG 常量可例外，但必须固定写死在本文件内。
+- 所有用户内容一律 `textContent` / `createTextNode` 渲染防 XSS，禁止 innerHTML 拼接用户数据；静态 SVG 常量可例外，但必须固定写死在本文件内。评论正文的 Markdown 子集渲染（SDK `renderMarkdown` 与 `admin/js/markdown.js`，两者同构同步）只允许 DOM 构建，URL 一律过 safeLinkUrl（仅 http/https），禁止引入 HTML 字符串解析。
 - 依赖版本统一改根 `Cargo.toml` 的 `[workspace.dependencies]`，成员 crate 用 `xxx.workspace = true` 引用。
 - 完成改动后必须跑通：`cargo build`、`cargo test`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`。

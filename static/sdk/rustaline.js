@@ -66,7 +66,10 @@
       loadMore: '加载更多评论',
       viewAllReplies: '查看全部 %d 条回复',
       continueThread: '继续查看这段对话（%d 条）›',
-      formHint: '支持 Markdown 链接 [文字](https://...)；昵称邮箱将记住在本机',
+      formHint: '支持 Markdown：[链接](https://...)、![图片](https://...)、**粗体**、*斜体*、`代码`；昵称邮箱将记住在本机',
+      mdImage: '图片',
+      mdImageError: '图片加载失败：',
+      close: '关闭',
       anonymous: '匿名',
       countLabel: '评论',
       errNetwork: '网络错误，请稍后再试',
@@ -102,7 +105,10 @@
       loadMore: 'Load more comments',
       viewAllReplies: function (n) { return n === 1 ? 'View 1 reply' : 'View all ' + n + ' replies'; },
       continueThread: function (n) { return n === 1 ? 'Continue this thread (1) ›' : 'Continue this thread (' + n + ') ›'; },
-      formHint: 'Markdown links supported: [text](https://...); nick & email are saved locally',
+      formHint: 'Markdown: [links](https://...), ![images](https://...), **bold**, *italic*, `code`; nick & email are saved locally',
+      mdImage: 'image',
+      mdImageError: 'Failed to load image:',
+      close: 'Close',
       anonymous: 'Anonymous',
       countLabel: function (n) { return n === 1 ? 'Comment' : 'Comments'; },
       errNetwork: 'Network error, please try again later',
@@ -535,6 +541,60 @@
   white-space: pre-wrap; /* 保留换行；textContent 天然防 XSS */
   margin: 2px 0 8px;
 }
+.rs-comment__content a { color: var(--rs-primary); text-decoration: none; }
+.rs-comment__content a:hover { text-decoration: underline; }
+.rs-comment__content code {
+  background: var(--rs-surface-container-high);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-family: var(--rs-font-mono);
+  font-size: 0.92em;
+  white-space: normal; /* code 段也允许随 pre-wrap 换行 */
+}
+
+/* ---- 图片查看模态框（SDK 无外部组件库，自绘 overlay） ---- */
+.rs-image-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+  animation: rs-fade-in 0.15s ease;
+  outline: none;
+}
+.rs-image-overlay__img {
+  max-width: min(92vw, 1200px);
+  max-height: 88vh;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+  background: #fff;
+  cursor: default;
+}
+.rs-image-overlay__error { color: #fff; font-size: 14px; word-break: break-all; }
+.rs-image-overlay__error a { color: #9ed1fa; }
+.rs-image-overlay__close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.rs-image-overlay__close:hover { background: rgba(255, 255, 255, 0.26); }
+@keyframes rs-fade-in { from { opacity: 0; } to { opacity: 1; } }
 .rs-comment__actions { display: flex; gap: 14px; align-items: center; }
 .rs-reply-btn {
   background: transparent;
@@ -768,6 +828,155 @@
     var s = String(link).trim();
     if (/^https?:\/\//i.test(s)) return s;
     return null;
+  }
+
+  /**
+   * 极简 Markdown 子集渲染 → DocumentFragment（纯 DOM 构建，无 HTML 字符串解析）。
+   * 支持：`code`、[链接](url)、![图片](url)（渲染为带图标的链接，点击弹模态框看图）、
+   * **粗体**、*斜体*；URL 仅接受 http(s)（safeLinkUrl），非法 / 未闭合语法一律按原文纯文本。
+   * bold 内部允许单层 * 以便嵌斜体/链接（递归深度 1）。
+   * 注意：与 static/admin/js/markdown.js 保持同构同步。
+   */
+  var MD_RE_SOURCE =
+    '`([^`]+)`' +                    // 1: 行内代码
+    '|!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)' +  // 2,3: 图片（以链接形式渲染）
+    '|\\[([^\\]]+)\\]\\(([^)\\s]+)\\)' +   // 4,5: 链接
+    '|\\*\\*((?:[^*]|\\*(?!\\*))+)\\*\\*' + // 6: 粗体（内部允许单个 *）
+    '|(?<!\\*)\\*(?!\\*)([^*]+?)(?<!\\*)\\*(?!\\*)'; // 7: 斜体（两侧不得再贴 *，防 **未闭合 误判）
+
+  // 图片链接前置图标（静态 SVG 常量，固定写死，不拼任何用户数据）
+  var MD_IMAGE_ICON =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+    'style="vertical-align:-0.15em;margin-right:3px" aria-hidden="true">' +
+    '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/>' +
+    '<path d="m21 15-3.5-3.5a1.5 1.5 0 0 0-2 0L6 21"/></svg>';
+
+  // 图片查看框关闭按钮图标（同上，静态常量）
+  var MD_CLOSE_ICON =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" ' +
+    'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">' +
+    '<path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+  function svgIcon(svgHtml) {
+    var template = document.createElement('template');
+    template.innerHTML = svgHtml;
+    return template.content.firstChild;
+  }
+
+  function mdImageIcon() {
+    return svgIcon(MD_IMAGE_ICON);
+  }
+
+  /**
+   * 图片查看模态框：遮罩 + 居中 img，点遮罩 / Esc 关闭。
+   * 安全：url 已过 safeLinkUrl（仅 http/https，javascript: 到不了这里）；
+   * img 上下文不执行脚本（含 SVG）；no-referrer 防查看者信息泄露；
+   * alt / 错误文案一律 textContent。
+   */
+  function showImageModal(url, label, errorText, closeLabel) {
+    var overlay = document.createElement('div');
+    overlay.className = 'rs-image-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', label || 'image');
+    overlay.tabIndex = -1;
+
+    function close() {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+    }
+    var onKey = function (e) { if (e.key === 'Escape') close(); };
+
+    // 右上角关闭按钮（加载失败兜底时也要保留，故先建好后单独持有引用）
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'rs-image-overlay__close';
+    closeBtn.setAttribute('aria-label', closeLabel || 'Close');
+    closeBtn.appendChild(svgIcon(MD_CLOSE_ICON));
+    closeBtn.addEventListener('click', close);
+
+    var img = document.createElement('img');
+    img.className = 'rs-image-overlay__img';
+    img.src = url;
+    img.alt = label || '';
+    img.referrerPolicy = 'no-referrer';
+    img.onerror = function () {
+      // 加载失败：换成错误文案 + 原始链接（仍允许用户自行新标签打开），关闭按钮保留
+      var tip = document.createElement('div');
+      tip.className = 'rs-image-overlay__error';
+      tip.textContent = errorText || 'Failed to load image:';
+      var a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener nofollow ugc';
+      a.textContent = url;
+      tip.appendChild(document.createTextNode(' '));
+      tip.appendChild(a);
+      overlay.replaceChildren(tip, closeBtn);
+    };
+    overlay.appendChild(img);
+    overlay.appendChild(closeBtn);
+
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) close(); // 点图本身不关，点遮罩才关
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(overlay);
+    overlay.focus();
+  }
+
+  /** 给图片链接挂点击查看器（函数参数天然按次绑定，规避 var 循环闭包共享） */
+  function attachImageViewer(anchor, url, label, labels) {
+    anchor.addEventListener('click', function (e) {
+      e.preventDefault();
+      showImageModal(url, label, labels && labels.imageError, labels && labels.close);
+    });
+  }
+
+  function renderMarkdown(text, labels, depth) {
+    var frag = document.createDocumentFragment();
+    var src = String(text == null ? '' : text);
+    var imageLabel = (labels && labels.image) || 'image';
+    // 每次调用用新正则实例：避免递归调用共享 lastIndex 互相踩位
+    var re = new RegExp(MD_RE_SOURCE, 'g');
+    var last = 0, m;
+    while ((m = re.exec(src)) !== null) {
+      if (m.index > last) frag.appendChild(document.createTextNode(src.slice(last, m.index)));
+      if (m[1] !== undefined) {
+        var code = document.createElement('code');
+        code.textContent = m[1];
+        frag.appendChild(code);
+      } else if (m[2] !== undefined || m[4] !== undefined) {
+        var isImg = m[2] !== undefined;
+        var label = isImg ? (m[2] || imageLabel) : m[4];
+        var safe = safeLinkUrl(isImg ? m[3] : m[5]);
+        if (safe) {
+          var a = document.createElement('a');
+          a.href = safe;
+          a.target = '_blank';
+          a.rel = 'noopener nofollow ugc';
+          if (isImg) {
+            a.className = 'rs-md-image';
+            a.appendChild(mdImageIcon());
+            attachImageViewer(a, safe, label, labels);
+          }
+          a.appendChild(document.createTextNode(label));
+          frag.appendChild(a);
+        } else {
+          frag.appendChild(document.createTextNode(m[0])); // 非法 URL：整段原文
+        }
+      } else if (m[6] !== undefined || m[7] !== undefined) {
+        var node = document.createElement(m[6] !== undefined ? 'strong' : 'em');
+        var inner = m[6] !== undefined ? m[6] : m[7];
+        if (!depth) node.appendChild(renderMarkdown(inner, labels, 1));
+        else node.textContent = inner;
+        frag.appendChild(node);
+      }
+      last = re.lastIndex;
+    }
+    if (last < src.length) frag.appendChild(document.createTextNode(src.slice(last)));
+    return frag;
   }
 
   /** 简易邮箱校验（与服务端宽松对齐，最终以服务端为准） */
@@ -1463,7 +1672,11 @@
         '@', h('strong', { text: nickOf[c.pid] }), ' '
       ));
     }
-    contentChildren.push(document.createTextNode(c.comment || ''));
+    contentChildren.push(renderMarkdown(c.comment || '', {
+      image: langVal(this.lang, 'mdImage'),
+      imageError: langVal(this.lang, 'mdImageError'),
+      close: langVal(this.lang, 'close'),
+    }));
 
     // 操作：回复按钮
     var actions = h('div', { class: 'rs-comment__actions' },

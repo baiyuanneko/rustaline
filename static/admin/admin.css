@@ -990,6 +990,54 @@ mdui-dialog.detail::part(panel) {
   color: rgb(var(--mdui-color-on-surface));
 }
 
+.detail__comment a {
+  color: rgb(var(--mdui-color-primary));
+  text-decoration: none;
+}
+
+.detail__comment a:hover {
+  text-decoration: underline;
+}
+
+.detail__comment code {
+  background: rgb(var(--mdui-color-surface-container-high));
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.92em;
+  white-space: normal;
+}
+
+/* ---- 图片查看模态框 ---- */
+.image-viewer__wrap {
+  position: relative;
+}
+
+.image-viewer__img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+
+.image-viewer__close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+.image-viewer__error {
+  padding: 12px 0;
+  color: rgb(var(--mdui-color-on-surface-variant));
+  word-break: break-all;
+}
+
+.image-viewer__error a {
+  color: rgb(var(--mdui-color-primary));
+}
+
 .detail__row {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr);
