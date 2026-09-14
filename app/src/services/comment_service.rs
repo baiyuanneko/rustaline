@@ -494,6 +494,7 @@ pub fn get_admin_config(config: &crate::config::AppConfig) -> AdminConfigRespons
             avatar_cdn: config.comment.avatar_cdn.clone(),
         },
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        introduction_index: config.static_.introduction_index,
     }
 }
 

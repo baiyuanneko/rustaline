@@ -57,8 +57,11 @@ const DICTS = {
     "nav.import": "Valine 导入",
     "nav.settings": "设置",
     "nav.toggle": "切换导航",
+    "nav.backToDashboard": "返回仪表盘",
     "nav.swagger": "Swagger UI ↗",
     "nav.demo": "演示页 ↗",
+    "nav.demoDisabledTitle": "演示页已禁用",
+    "nav.demoDisabled": "演示页已被环境变量禁用",
 
     // ---- 外观 / 偏好 ----
     "prefs.openLabel": "外观设置",
@@ -125,6 +128,8 @@ const DICTS = {
     "comments.title": "评论管理",
     "comments.subtitle": "审核、删除、按状态/文章/关键词筛选",
     "comments.loadFailed": "加载评论失败",
+    "comments.filterBannerPrefix": "当前正在查看在特定筛选条件下的评论列表，若需查看全部评论，请",
+    "comments.filterBannerAction": "点此重置筛选条件",
     "comments.noMatch": "没有匹配的评论",
     "comments.noMatchHint": "尝试调整筛选条件，或前往导入页导入历史数据",
     "comments.colAuthor": "作者",
@@ -320,8 +325,11 @@ const DICTS = {
     "nav.import": "Valine Import",
     "nav.settings": "Settings",
     "nav.toggle": "Toggle navigation",
+    "nav.backToDashboard": "Back to dashboard",
     "nav.swagger": "Swagger UI ↗",
     "nav.demo": "Demo ↗",
+    "nav.demoDisabledTitle": "Demo page disabled",
+    "nav.demoDisabled": "The demo page has been disabled by environment variable",
 
     // ---- appearance / prefs ----
     "prefs.openLabel": "Appearance",
@@ -388,6 +396,8 @@ const DICTS = {
     "comments.title": "Comments",
     "comments.subtitle": "Moderate, delete, filter by status / URL / keyword",
     "comments.loadFailed": "Failed to load comments",
+    "comments.filterBannerPrefix": "You are viewing comments under specific filters. To view all comments, ",
+    "comments.filterBannerAction": "click here to reset the filters",
     "comments.noMatch": "No matching comments",
     "comments.noMatchHint": "Try adjusting the filters, or import legacy data on the Import page",
     "comments.colAuthor": "Author",

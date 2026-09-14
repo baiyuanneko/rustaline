@@ -56,6 +56,13 @@ pub struct LogConfig {
 pub struct StaticConfig {
     /// 静态文件目录（兜底挂载在根路径），相对路径基于应用工作目录
     pub dir: String,
+    /// 是否提供演示首页（/ -> static/index.html）；false 时 / 307 重定向到 /admin/
+    #[serde(default = "default_true")]
+    pub introduction_index: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -139,6 +146,7 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_JWT_BLACKLIST_ENABLED", "jwt.blacklist_enabled"),
     ("APP_LOG_LEVEL", "log.level"),
     ("APP_STATIC_DIR", "static.dir"),
+    ("APP_ENABLE_INTRODUCTION_INDEX", "static.introduction_index"),
     ("APP_COMMENT_MODERATION", "comment.moderation"),
     ("APP_COMMENT_MAX_LENGTH", "comment.max_length"),
     (

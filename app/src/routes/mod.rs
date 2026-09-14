@@ -1,6 +1,7 @@
 use axum::Router;
 use axum::http::{HeaderValue, header};
 use axum::middleware::from_fn_with_state;
+use axum::response::Redirect;
 use axum::routing::{get, patch, post};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
@@ -12,10 +13,20 @@ use crate::state::AppState;
 use crate::{handlers, openapi};
 
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/health", get(handlers::health::health))
         .nest("/api/v1", api_v1(state.clone()))
-        .merge(openapi::swagger_ui())
+        .merge(openapi::swagger_ui());
+
+    // 演示页禁用（static.introduction_index = false）时，给 / 显式挂临时重定向到管理面板，
+    // 优先于 ServeDir 兜底；用 307 而非 301，开关回改后浏览器不会缓存死重定向
+    let router = if state.config.static_.introduction_index {
+        router
+    } else {
+        router.route("/", get(|| async { Redirect::temporary("/admin/") }))
+    };
+
+    router
         // 静态文件兜底：显式路由（/health、/api/**、/swagger-ui、/api-doc）优先，
         // 其余路径落到 static/ 目录（/ -> index.html，/admin/ -> 管理面板）。
         // no-cache 强制浏览器每次向服务器再验证（未变则 304），避免启发式缓存

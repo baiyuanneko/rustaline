@@ -39,7 +39,7 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 
 - Swagger UI: http://localhost:8080/swagger-ui/
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
-- 评论演示页: http://localhost:8080/
+- 评论演示页: http://localhost:8080/（设 `APP_ENABLE_INTRODUCTION_INDEX=false` 可关闭，此后访问 / 返回 307 跳转 /admin/，管理面板「演示页」入口会提示已禁用）
 - 管理面板: http://localhost:8080/admin/（首次启动时由 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 种入数据库，之后可在设置页改密码）
 - 脚手架示例页: http://localhost:8080/scaffold-demo.html
 - 健康检查: `curl http://localhost:8080/health`

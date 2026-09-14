@@ -169,6 +169,8 @@ pub struct CommentConfigResponse {
 pub struct AdminConfigResponse {
     pub comment: CommentConfigResponse,
     pub version: String,
+    /// 演示首页是否启用（false 时 / 重定向到 /admin/）
+    pub introduction_index: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

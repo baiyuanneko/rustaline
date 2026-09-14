@@ -8,7 +8,8 @@ Cargo workspace，两个 crate：
 bynrust26/
 ├── Cargo.toml            # workspace 根，[workspace.dependencies] 统一版本
 ├── config/default.toml   # 默认配置（local.toml 为本机覆盖，已 gitignore）
-├── static/               # 静态文件目录，ServeDir 兜底挂载于根路径（目录请求返回 index.html）
+├── static/               # 静态文件目录，ServeDir 兜底挂载于根路径（目录请求返回 index.html）；
+│                         # static.introduction_index=false（APP_ENABLE_INTRODUCTION_INDEX）时 / 改挂 307 重定向到 /admin/（routes/mod.rs）
 │   ├── index.html        # rustaline 评论系统演示主页（mdui 风格，引入 sdk/rustaline.js；中英双语 data-i18n 标记）
 │   ├── index-i18n.js     # 演示页 i18n：独立小字典（zh-CN/en）+ data-i18n 填充 + 右上角语言切换按钮
 │   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示，仅中文）

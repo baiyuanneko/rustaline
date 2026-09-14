@@ -7,8 +7,9 @@ import {
   logout as apiLogout,
   setUnauthorizedHandler,
   fetchStats,
+  fetchConfig,
 } from "./api.js";
-import { toastErr, el, icon, attachRipple } from "./components.js";
+import { toastErr, el, icon, attachRipple, openDetailDialog } from "./components.js";
 import { applyStaticTexts, getLang, setLang, t } from "./i18n.js";
 import * as loginView from "./views/login.js";
 import * as dashboardView from "./views/dashboard.js";
@@ -183,6 +184,31 @@ function initSidebar() {
 
   // 底部外链是原生 <a>，无内置涟漪，手动接上
   document.querySelectorAll(".sidebar__link").forEach((a) => attachRipple(a));
+
+  // 演示页入口：开关由后端 /admin/config 下发（APP_ENABLE_INTRODUCTION_INDEX）。
+  // 禁用时拦截点击弹提示；启用 / 请求失败 / 未登录时保持原生新标签打开。
+  const demoLink = document.querySelector('.sidebar__link[href="/"]');
+  if (demoLink) {
+    demoLink.addEventListener("click", async (e) => {
+      if (!isAuthenticated()) return;
+      e.preventDefault();
+      let disabled = false;
+      try {
+        const cfg = await fetchConfig();
+        disabled = !!cfg && cfg.introduction_index === false;
+      } catch (_) {
+        disabled = false;
+      }
+      if (!disabled) {
+        window.open("/", "_blank", "noopener");
+        return;
+      }
+      openDetailDialog({
+        title: t("nav.demoDisabledTitle"),
+        renderBody: () => el("p", { text: t("nav.demoDisabled") }),
+      });
+    });
+  }
 }
 
 async function handleLogout() {
@@ -316,6 +342,15 @@ function initTopbar() {
   const btn = document.getElementById("logout-btn");
   if (btn) btn.addEventListener("click", handleLogout);
   initThemeToggle();
+
+  // 顶部品牌点击 -> 回到仪表盘首页（未登录时由路由守卫兜回登录页）
+  const brand = document.querySelector(".topbar__brand");
+  if (brand) {
+    brand.addEventListener("click", () => {
+      location.hash = DEFAULT_ROUTE;
+    });
+    attachRipple(brand);
+  }
 }
 
 function init() {

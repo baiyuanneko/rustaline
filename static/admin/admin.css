@@ -33,6 +33,18 @@ body {
   white-space: nowrap;
 }
 
+.topbar__brand {
+  position: relative;
+  overflow: hidden;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 .topbar__spacer {
   flex: 1 1 auto;
 }
@@ -106,9 +118,14 @@ body {
 }
 
 /* ---- 抽屉 ---- */
-/* mdui 抽屉桌面端默认 22.5rem，对管理面板过宽 */
-#sidebar {
-  width: 15rem;
+/* mdui 抽屉桌面端默认 22.5rem，对管理面板过宽，故收窄。
+   注意必须只在桌面端生效：移动端 modal 模式下 mdui 的 :host([mobile]) 规则
+   （width: initial，无 !important）压不过这里的 id 选择器，
+   宿主若保持 15rem 宽，阴影遮罩就只盖住抽屉自身而不是整个视口 */
+@media (min-width: 840px) {
+  #sidebar {
+    width: 15rem;
+  }
 }
 
 .drawer__inner {
@@ -285,6 +302,41 @@ mdui-badge[hidden] {
   .filters {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- 筛选中横幅（评论列表上方） ---- */
+.filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border-left: 3px solid rgb(var(--mdui-color-primary));
+  background: rgb(var(--mdui-color-primary-container));
+  color: rgb(var(--mdui-color-on-primary-container));
+  font-size: 14px;
+}
+
+.filter-banner mdui-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: rgb(var(--mdui-color-primary));
+}
+
+.filter-banner__link {
+  position: relative;
+  overflow: hidden;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: rgb(var(--mdui-color-primary));
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---- URL 筛选下拉（可搜索，向下展开） ---- */

@@ -19,6 +19,8 @@ import {
   formatTime,
   formatRelative,
   el,
+  icon,
+  attachRipple,
 } from "../components.js";
 import { forceRefreshBadge } from "../app.js";
 import { t } from "../i18n.js";
@@ -43,6 +45,8 @@ const state = {
 let tableHost = null;
 let urlFilter = null;
 let urlDocListener = null;
+// 筛选控件引用：横幅里的「重置」与筛选区「重置」按钮共用同一套状态复位逻辑
+const filterEls = { status: null, keyword: null, from: null };
 
 export async function render(container) {
   applyHashQuery();
@@ -103,6 +107,7 @@ function buildFilters() {
     reload();
   });
   wrap.appendChild(statusSel);
+  filterEls.status = statusSel;
 
   const urlSel = buildUrlFilter();
   wrap.appendChild(urlSel);
@@ -123,6 +128,7 @@ function buildFilters() {
     }
   });
   wrap.appendChild(kwInput);
+  filterEls.keyword = kwInput;
 
   // 起始日期（UTC 口径，YYYY-MM-DD）：仪表盘「今日新增」卡片跳转时由 hash 带入
   const fromInput = el("mdui-text-field", {
@@ -138,6 +144,7 @@ function buildFilters() {
     reload();
   });
   wrap.appendChild(fromInput);
+  filterEls.from = fromInput;
 
   const searchBtn = el("mdui-button", { variant: "filled", text: t("filter.search") });
   searchBtn.addEventListener("click", () => {
@@ -148,18 +155,7 @@ function buildFilters() {
   wrap.appendChild(searchBtn);
 
   const resetBtn = el("mdui-button", { variant: "outlined", text: t("filter.reset") });
-  resetBtn.addEventListener("click", () => {
-    state.status = "";
-    state.url = "";
-    state.keyword = "";
-    state.from = "";
-    state.page = 1;
-    statusSel.value = "";
-    if (urlFilter) urlFilter.input.value = "";
-    kwInput.value = "";
-    fromInput.value = "";
-    reload();
-  });
+  resetBtn.addEventListener("click", resetFilters);
   wrap.appendChild(resetBtn);
   return wrap;
 }
@@ -269,6 +265,42 @@ async function reload() {
   await loadList(tableHost);
 }
 
+function hasFilter() {
+  return !!(state.status || state.url || state.keyword || state.from);
+}
+
+// 筛选区「重置」按钮与横幅里的「点此重置」共用：复位 state + 同步控件显示值 + 重载
+function resetFilters() {
+  state.status = "";
+  state.url = "";
+  state.keyword = "";
+  state.from = "";
+  state.page = 1;
+  if (filterEls.status) filterEls.status.value = "";
+  if (urlFilter) urlFilter.input.value = "";
+  if (filterEls.keyword) filterEls.keyword.value = "";
+  if (filterEls.from) filterEls.from.value = "";
+  reload();
+}
+
+// 存在筛选条件时列表上方的醒目横幅（见 loadList），附一键重置链接。
+// 文案与链接包在同一 inline 容器里：中文连排，不与图标共用 flex gap
+function filterBanner() {
+  const bar = el("div", { class: "filter-banner" });
+  bar.appendChild(icon("info"));
+  const text = el("span", { class: "filter-banner__text" });
+  text.appendChild(document.createTextNode(t("comments.filterBannerPrefix")));
+  const link = el("button", {
+    class: "filter-banner__link",
+    text: t("comments.filterBannerAction"),
+  });
+  link.addEventListener("click", resetFilters);
+  attachRipple(link);
+  text.appendChild(link);
+  bar.appendChild(text);
+  return bar;
+}
+
 async function loadList(host) {
   host.appendChild(tableSkeleton(8, 6));
   try {
@@ -281,6 +313,8 @@ async function loadList(host) {
       page_size: PAGE_SIZE,
     });
     host.replaceChildren();
+    // 有筛选条件时列表上方挂醒目横幅，提示「当前为筛选视图」并可一键重置
+    if (hasFilter()) host.appendChild(filterBanner());
     renderTable(host, data);
   } catch (err) {
     host.replaceChildren();

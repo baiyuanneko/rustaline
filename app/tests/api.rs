@@ -42,6 +42,7 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
         },
         static_: StaticConfig {
             dir: concat!(env!("CARGO_MANIFEST_DIR"), "/../static").into(),
+            introduction_index: true,
         },
         comment: CommentConfig::default(),
         initial_admin: InitialAdminConfig {
@@ -88,13 +89,16 @@ async fn build_app(redis_url: Option<String>, blacklist_enabled: bool) -> Router
 }
 
 async fn build_app_with_comment(comment: CommentConfig) -> Router {
+    let mut config = test_config(false);
+    config.comment = comment;
+    build_app_with_config(config).await
+}
+
+async fn build_app_with_config(config: AppConfig) -> Router {
     let mut opt = ConnectOptions::new("sqlite::memory:");
     opt.max_connections(1);
     let db = Database::connect(opt).await.expect("connect sqlite memory");
     Migrator::up(&db, None).await.expect("run migrations");
-
-    let mut config = test_config(false);
-    config.comment = comment;
 
     app::auth::admin::seed_admin(&db, &config.initial_admin)
         .await
@@ -174,6 +178,56 @@ async fn health_returns_200() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "ok");
     assert_eq!(body["db"], "up");
+}
+
+#[tokio::test]
+async fn root_serves_demo_index_by_default() {
+    let app = build_app(None, false).await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn root_redirects_to_admin_when_introduction_index_disabled() {
+    let mut config = test_config(false);
+    config.static_.introduction_index = false;
+    let app = build_app_with_config(config).await;
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(resp.headers().get(header::LOCATION).unwrap(), "/admin/");
+
+    // SDK / 管理面板静态资源不受重定向影响
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/sdk/rustaline.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

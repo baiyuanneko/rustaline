@@ -29,6 +29,8 @@ level = "info"
 [static]
 # 静态文件目录，兜底挂载在根路径；相对路径基于应用启动时的工作目录
 dir = "static"
+# 演示首页开关：false 时访问 / 返回 307 跳转 /admin/（SDK 与管理面板不受影响）
+introduction_index = true
 
 [comment]
 # true 时新评论 status=pending，需审核后才公开
