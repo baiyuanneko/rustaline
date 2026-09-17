@@ -10,3 +10,6 @@ config/local.toml
 
 # AI 代理工作计划文档
 .sisyphus/
+
+# ZCode 会话产物
+.zcode/
