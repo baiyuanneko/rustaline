@@ -563,6 +563,7 @@ function openDetail(item) {
       if (item.link) body.appendChild(detailRow(t("detail.link"), item.link, true));
       if (item.qq_avatar) body.appendChild(detailRow(t("detail.qqAvatar"), item.qq_avatar, true));
       if (item.ip) body.appendChild(detailRow(t("detail.ip"), item.ip || "—", true));
+      if (item.ua_summary) body.appendChild(detailRow(t("detail.uaSummary"), item.ua_summary));
       if (item.ua) body.appendChild(detailRow(t("detail.ua"), item.ua, true));
       body.appendChild(detailRow(t("detail.insertedAt"), formatTime(item.inserted_at)));
       body.appendChild(detailRow(t("detail.createdAt"), formatTime(item.created_at)));

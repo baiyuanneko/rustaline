@@ -209,6 +209,30 @@ function initSidebar() {
       });
     });
   }
+
+  // Swagger UI 入口：同上演示页模式，开关由 APP_ENABLE_SWAGGER_UI 下发
+  const swaggerLink = document.querySelector('.sidebar__link[href="/swagger-ui/"]');
+  if (swaggerLink) {
+    swaggerLink.addEventListener("click", async (e) => {
+      if (!isAuthenticated()) return;
+      e.preventDefault();
+      let disabled = false;
+      try {
+        const cfg = await fetchConfig();
+        disabled = !!cfg && cfg.swagger_ui === false;
+      } catch (_) {
+        disabled = false;
+      }
+      if (!disabled) {
+        window.open("/swagger-ui/", "_blank", "noopener");
+        return;
+      }
+      openDetailDialog({
+        title: t("nav.swaggerDisabledTitle"),
+        renderBody: () => el("p", { text: t("nav.swaggerDisabled") }),
+      });
+    });
+  }
 }
 
 async function handleLogout() {

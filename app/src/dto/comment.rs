@@ -28,6 +28,9 @@ pub struct CommentPublicResponse {
     pub pid: Option<String>,
     pub rid: Option<String>,
     pub inserted_at: NaiveDateTime,
+    /// UA 解析摘要（如 "Chrome 126 · Windows"），供前端展示评论者环境徽章。
+    /// 仅当 comment.display_commenter_user_agent = true 时下发；原始 ua 绝不出现在公共响应
+    pub ua_summary: Option<String>,
 }
 
 /// 一楼（root 评论 + 回复预览）：root 字段平铺自 CommentPublicResponse
@@ -106,6 +109,9 @@ pub struct AdminCommentResponse {
     pub parent: Option<AdminCommentParent>,
     pub ip: Option<String>,
     pub ua: Option<String>,
+    /// UA 解析摘要（如 "Chrome 126 · Windows"）；管理侧不受
+    /// display_commenter_user_agent 开关限制，始终尽力解析
+    pub ua_summary: Option<String>,
     pub is_notified: bool,
     pub status: String,
     pub inserted_at: NaiveDateTime,
@@ -163,6 +169,8 @@ pub struct CommentConfigResponse {
     pub default_nick: String,
     /// 邮箱头像镜像 CDN（空字符串 = 已禁用邮箱头像层）
     pub avatar_cdn: String,
+    /// 是否在公共评论响应中下发 UA 解析摘要（ua_summary）
+    pub display_commenter_user_agent: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -171,6 +179,8 @@ pub struct AdminConfigResponse {
     pub version: String,
     /// 演示首页是否启用（false 时 / 重定向到 /admin/）
     pub introduction_index: bool,
+    /// Swagger UI 是否启用（false 时 /swagger-ui 不挂载，面板点击弹提示）
+    pub swagger_ui: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

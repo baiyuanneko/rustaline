@@ -37,11 +37,10 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 
 启动流程：加载配置 → 初始化 tracing → 连数据库 → 自动跑迁移（`Migrator::up`）→ 连 Redis → serve（支持 Ctrl+C / SIGTERM 优雅退出）。
 
-- Swagger UI: http://localhost:8080/swagger-ui/
+- Swagger UI: http://localhost:8080/swagger-ui/（设 `APP_ENABLE_SWAGGER_UI=false` 可关闭，此后 `/swagger-ui` 与 `/api-doc/openapi.json` 均返回 404，管理面板「Swagger UI」入口点击会弹窗提示已禁用）
 - OpenAPI JSON: http://localhost:8080/api-doc/openapi.json
 - 评论演示页: http://localhost:8080/（设 `APP_ENABLE_INTRODUCTION_INDEX=false` 可关闭，此后访问 / 返回 307 跳转 /admin/，管理面板「演示页」入口会提示已禁用）
 - 管理面板: http://localhost:8080/admin/（首次启动时由 `APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 种入数据库，之后可在设置页改密码）
-- 脚手架示例页: http://localhost:8080/scaffold-demo.html
 - 健康检查: `curl http://localhost:8080/health`
 
 ## rustaline 评论系统（Valine 替代品）
@@ -69,7 +68,7 @@ cargo run -p app              # 启动，监听 0.0.0.0:8080（注意与方式�
 
 界面文案也支持自定义覆盖（可借此扩展其他语言）：`lang: { submit: '发表评论', empty: '还没有评论' }` 会浅合并到内置字典上，只需给出要改的键；内置字典完整键列表见浏览器控制台 `Rustaline.langs`。
 
-SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回复预览 + 按需展开）、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾；评论正文支持 Markdown 子集（`[链接]`、`![图片]`（渲染为带图标的链接，点击弹模态框看图）、`**粗体**`、`*斜体*`、`` `代码` ``），自写极简渲染器全程 DOM 构建、URL 限 http(s)，无 XSS 面；配色由 `colorPattern` 种子色派生（默认淡蓝，多实例可各自不同），`darkMode` 控制明暗（默认跟随系统），CSS 变量（`--rs-*`）可进一步定制。
+SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回复预览 + 按需展开）、回复表单、头像推导（QQ 头像 > gravatar > 默认 SVG）、蜜罐反垃圾；评论正文支持 Markdown 子集（`[链接]`、`![图片]`（渲染为带图标的链接，点击弹模态框看图）、`**粗体**`、`*斜体*`、`~~删除线~~`、`` `代码` ``），自写极简渲染器全程 DOM 构建、URL 限 http(s)，无 XSS 面；配色由 `colorPattern` 种子色派生（默认淡蓝，多实例可各自不同），`darkMode` 控制明暗（默认跟随系统），CSS 变量（`--rs-*`）可进一步定制。
 
 ### 公共接口（匿名，无需登录）
 
@@ -79,11 +78,13 @@ SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回�
 | GET | `/api/v1/comments/replies?url=<文章URL>&rid=<楼rootId>&offset=&limit=` | 楼内回复展开：`{ total, results }`，时间升序（limit 上限 50）；rid 须指向同 url 的顶层评论，否则 400 |
 | POST | `/api/v1/comments` | 提交评论 `{ url, comment, nick?, mail?, link?, pid?, rid? }`；白名单之外字段（如 qq_avatar）一律忽略，rid 由服务端按父评论推导（伪造或不一致 400）；ip/ua 服务端采集（UA 截断 512 字符），字段长度对齐列宽，限流 429 |
 
+公共响应的 Comment 字段为 `{ id, comment, nick, link, avatar, url, pid, rid, inserted_at, ua_summary }`；`ua_summary` 是服务端解析的评论者环境摘要（如 `"Chrome 126 · Windows"`，SDK 显示为评论旁徽章），仅当 `APP_DISPLAY_COMMENTER_USER_AGENT=true` 时下发，否则恒为 `null`；原始 ua/ip/mail 绝不出现在公共响应。
+
 ### 管理接口（需管理员 JWT）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/admin/comments` | 分页列表（status/url/keyword/from 过滤，from 为 UTC 起始日期 YYYY-MM-DD），含 ip/mail/ua |
+| GET | `/api/v1/admin/comments` | 分页列表（status/url/keyword/from 过滤，from 为 UTC 起始日期 YYYY-MM-DD），含 ip/mail/ua 及解析出的 ua_summary |
 | PATCH | `/api/v1/admin/comments/{id}` | 审核：`{ status: "approved"\|"pending"\|"spam" }` |
 | DELETE | `/api/v1/admin/comments/{id}` | 删除（子评论自动降级为根评论） |
 | POST | `/api/v1/admin/comments/import/valine` | 导入 LeanCloud 导出 JSON（单批 ≤1000 条，按 objectId 幂等） |
@@ -110,6 +111,7 @@ LeanCloud 控制台导出 Comment 表 JSON 后，在管理面板「导入」页�
 | `APP_COMMENT_RATE_LIMIT_PER_MINUTE` | `APP_COMMENT__RATE_LIMIT_PER_MINUTE` | 单 IP 每分钟最多提交数 | `5` |
 | `APP_COMMENT_DEFAULT_NICK` | `APP_COMMENT__DEFAULT_NICK` | 未填昵称时的默认昵称 | `Anonymous` |
 | `APP_AVATAR_CDN` | `APP_COMMENT__AVATAR_CDN` | 邮箱头像 CDN（gravatar 协议镜像）；置空 = 禁用邮箱头像层 | `https://gravatar.loli.net/avatar/` |
+| `APP_DISPLAY_COMMENTER_USER_AGENT` | `APP_COMMENT__DISPLAY_COMMENTER_USER_AGENT` | 是否在公共评论响应中下发 UA 解析摘要（`ua_summary`，如 "Chrome 126 · Windows"），SDK 据此显示评论者浏览器/系统徽章 | `true` |
 
 注意：时间字段为 UTC 朴素时间（无时区后缀），前端展示时已按 UTC 解析转本地；跨域部署 SDK 时保持默认放开 CORS 或按需收紧（`routes/mod.rs` 的 CorsLayer）。
 

@@ -17,6 +17,8 @@ use crate::dto::{
 use crate::entities::comments;
 use crate::error::AppError;
 
+use super::ua;
+
 pub fn normalize_url(url: &str) -> String {
     let trimmed = url.trim();
     if trimmed.len() > 1 {
@@ -157,9 +159,9 @@ pub async fn list_threads(
             reply_count: reply_counts.get(&root.id).copied().unwrap_or(0),
             replies: replies
                 .into_iter()
-                .map(|m| public_dto_from_model(m, &config.avatar_cdn))
+                .map(|m| public_dto_from_model(m, config))
                 .collect(),
-            comment: public_dto_from_model(root, &config.avatar_cdn),
+            comment: public_dto_from_model(root, config),
         });
     }
 
@@ -219,7 +221,7 @@ pub async fn list_replies(
         total,
         results: rows
             .into_iter()
-            .map(|m| public_dto_from_model(m, &config.avatar_cdn))
+            .map(|m| public_dto_from_model(m, config))
             .collect(),
     })
 }
@@ -302,7 +304,7 @@ pub async fn create_comment(
         updated_at: Set(now),
     };
     let model = active.insert(db).await?;
-    Ok(public_dto_from_model(model, &config.avatar_cdn))
+    Ok(public_dto_from_model(model, config))
 }
 
 /// list_admin 的过滤条件打包（status/url/keyword/from），避免参数膨胀
@@ -389,7 +391,7 @@ pub async fn list_admin(
             .into_iter()
             .map(|m| {
                 let parent = m.pid.as_ref().and_then(|pid| parent_map.get(pid).cloned());
-                admin_dto_from_model(m, parent, &config.avatar_cdn)
+                admin_dto_from_model(m, parent, config)
             })
             .collect(),
         total,
@@ -420,7 +422,7 @@ pub async fn update_status(
     active.status = Set(status);
     active.updated_at = Set(Utc::now().naive_utc());
     let updated = active.update(db).await?;
-    Ok(admin_dto_from_model(updated, None, &config.avatar_cdn))
+    Ok(admin_dto_from_model(updated, None, config))
 }
 
 pub async fn delete_comment(db: &DatabaseConnection, id: &str) -> Result<(), AppError> {
@@ -492,9 +494,11 @@ pub fn get_admin_config(config: &crate::config::AppConfig) -> AdminConfigRespons
             rate_limit_per_minute: config.comment.rate_limit_per_minute,
             default_nick: config.comment.default_nick.clone(),
             avatar_cdn: config.comment.avatar_cdn.clone(),
+            display_commenter_user_agent: config.comment.display_commenter_user_agent,
         },
         version: env!("CARGO_PKG_VERSION").to_owned(),
         introduction_index: config.static_.introduction_index,
+        swagger_ui: config.swagger.enabled,
     }
 }
 
@@ -559,12 +563,20 @@ fn fake_response(
         pid: payload.pid.clone(),
         rid: payload.rid.clone(),
         inserted_at: Utc::now().naive_utc(),
+        // 蜜罐提交不会有真实入库行，摘要无从谈起
+        ua_summary: None,
     }
 }
 
-fn public_dto_from_model(m: comments::Model, cdn: &str) -> CommentPublicResponse {
+/// 公共响应转换：头像推导 + 按开关计算 UA 摘要（原始 ua 绝不进入公共响应）
+fn public_dto_from_model(m: comments::Model, config: &CommentConfig) -> CommentPublicResponse {
+    let ua_summary = if config.display_commenter_user_agent {
+        m.ua.as_deref().and_then(ua::parse_ua)
+    } else {
+        None
+    };
     CommentPublicResponse {
-        avatar: derive_avatar(&m.qq_avatar, &m.mail, cdn),
+        avatar: derive_avatar(&m.qq_avatar, &m.mail, &config.avatar_cdn),
         id: m.id,
         comment: m.comment,
         nick: m.nick,
@@ -573,16 +585,19 @@ fn public_dto_from_model(m: comments::Model, cdn: &str) -> CommentPublicResponse
         pid: m.pid,
         rid: m.rid,
         inserted_at: m.inserted_at,
+        ua_summary,
     }
 }
 
+/// 管理响应转换：管理侧总能看到原始 ua，摘要始终尽力解析（不受公共开关限制）
 fn admin_dto_from_model(
     m: comments::Model,
     parent: Option<AdminCommentParent>,
-    cdn: &str,
+    config: &CommentConfig,
 ) -> AdminCommentResponse {
     // 在字段被 move 前先推导头像（qq_avatar 优先，其次邮箱 MD5）
-    let avatar = derive_avatar(&m.qq_avatar, &m.mail, cdn);
+    let avatar = derive_avatar(&m.qq_avatar, &m.mail, &config.avatar_cdn);
+    let ua_summary = m.ua.as_deref().and_then(ua::parse_ua);
     AdminCommentResponse {
         id: m.id,
         comment: m.comment,
@@ -597,6 +612,7 @@ fn admin_dto_from_model(
         parent,
         ip: m.ip,
         ua: m.ua,
+        ua_summary,
         is_notified: m.is_notified,
         status: m.status,
         inserted_at: m.inserted_at,

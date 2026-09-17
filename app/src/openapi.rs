@@ -7,7 +7,7 @@ use crate::{dto, handlers};
 
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "bynrust26 API", version = "0.1.0", description = "bynrust26 scaffold API"),
+    info(title = "Rustaline API", version = "0.1.0", description = "Rustaline comment system API"),
     paths(
         handlers::health::health,
         handlers::auth::login,

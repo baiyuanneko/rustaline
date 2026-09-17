@@ -1,6 +1,6 @@
 // 极简 Markdown 子集渲染 → DocumentFragment（纯 DOM 构建，无 HTML 字符串解析）。
 // 支持：`code`、[链接](url)、![图片](url)（渲染为带图标的链接，点击弹模态框看图）、
-// **粗体**、*斜体*；URL 仅接受 http(s)，非法 / 未闭合语法一律按原文纯文本。
+// **粗体**、*斜体*、~~删除线~~；URL 仅接受 http(s)，非法 / 未闭合语法一律按原文纯文本。
 // 注意：与 static/sdk/rustaline.js 中的 renderMarkdown 保持同构同步
 // （SDK 受单文件零依赖约束无法 import 本模块；模态框实现两端各自就地取材）。
 
@@ -15,7 +15,8 @@ const MD_RE_SOURCE =
   '|!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)' +    // 2,3: 图片（以链接形式渲染）
   '|\\[([^\\]]+)\\]\\(([^)\\s]+)\\)' +     // 4,5: 链接
   '|\\*\\*((?:[^*]|\\*(?!\\*))+)\\*\\*' +  // 6: 粗体（内部允许单个 *，便于嵌斜体/链接）
-  '|(?<!\\*)\\*(?!\\*)([^*]+?)(?<!\\*)\\*(?!\\*)'; // 7: 斜体（两侧不得再贴 *，防 **未闭合 误判）
+  '|(?<!\\*)\\*(?!\\*)([^*]+?)(?<!\\*)\\*(?!\\*)' + // 7: 斜体（两侧不得再贴 *，防 **未闭合 误判）
+  '|~~([^~]+)~~';                        // 8: 删除线
 
 // 图片链接前置图标（静态 SVG 常量，固定写死，不拼任何用户数据）
 const MD_IMAGE_ICON =
@@ -137,9 +138,10 @@ export function renderMarkdown(text, labels, depth) {
       } else {
         frag.appendChild(document.createTextNode(m[0])); // 非法 URL：整段原文
       }
-    } else if (m[6] !== undefined || m[7] !== undefined) {
-      const node = document.createElement(m[6] !== undefined ? "strong" : "em");
-      const inner = m[6] !== undefined ? m[6] : m[7];
+    } else if (m[6] !== undefined || m[7] !== undefined || m[8] !== undefined) {
+      const tag = m[6] !== undefined ? "strong" : m[7] !== undefined ? "em" : "del";
+      const inner = m[6] !== undefined ? m[6] : m[7] !== undefined ? m[7] : m[8];
+      const node = document.createElement(tag);
       if (!depth) node.appendChild(renderMarkdown(inner, labels, 1));
       else node.textContent = inner;
       frag.appendChild(node);

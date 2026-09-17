@@ -6,11 +6,13 @@
   <meta name="color-scheme" content="light dark">
   <title>rustaline — Valine 自托管替代品</title>
   <meta name="description" content="rustaline 是一个无依赖、可自托管的评论系统，作为 Valine 的现代替代。一个 script + 两行代码即可拥有完整评论。">
+  <link rel="icon" type="image/webp" href="/icon.webp">
   <link rel="stylesheet" href="/vendor/mdui/mdui.css">
   <style>
     html, body {
       margin: 0;
-      min-height: 100%;
+      /* height:100% 让 mdui-layout-main 成为内部滚动容器，顶栏常驻不随页面滚走 */
+      height: 100%;
     }
 
     body {
@@ -26,34 +28,14 @@
 
     .topbar__spacer { flex: 1 1 auto; }
     .topbar__brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: -0.01em; }
-    .topbar__brand::before {
-      content: '';
-      width: 10px; height: 10px;
-      background: rgb(var(--mdui-color-primary));
-      border-radius: 3px;
-      transform: rotate(45deg);
-    }
+    .topbar__logo { width: 24px; height: 24px; border-radius: 6px; display: block; }
     .topbar__links { display: flex; align-items: center; gap: 4px; }
     @media (max-width: 760px) { .topbar__links { display: none; } }
 
-    .page-wrap { max-width: 880px; margin: 0 auto; padding: 24px 20px 56px; }
+    .page-wrap { max-width: 960px; margin: 0 auto; padding: 24px 20px 56px; }
 
     /* Hero */
     .hero { padding: 56px 0 40px; border-bottom: 1px solid rgb(var(--mdui-color-outline-variant)); }
-    .hero__eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 5px 12px;
-      background: rgb(var(--mdui-color-primary-container));
-      border-radius: 999px;
-      font-size: 12px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: rgb(var(--mdui-color-on-primary-container));
-      font-weight: 600;
-      margin-bottom: 24px;
-    }
     .hero h1 {
       margin: 0;
       font-size: clamp(36px, 7vw, 64px);
@@ -66,6 +48,8 @@
       font-style: normal;
       color: rgb(var(--mdui-color-primary));
     }
+    /* 中西文混排间距：等宽字体自带间隙过窄，给 Valine 两侧一点呼吸感（可调） */
+    .hero h1 .hero-valine { margin: 0 0.25em; }
     .hero .lede {
       max-width: 640px;
       margin: 20px 0 0;
@@ -73,6 +57,86 @@
       color: rgb(var(--mdui-color-on-surface-variant));
     }
     .hero__cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
+    /* 在线演示：全宽通栏，左侧约 1/3 参数面板 + 右侧评论区 */
+    .demo-full {
+      padding: 40px 28px 56px;
+      border-top: 1px solid rgb(var(--mdui-color-outline-variant));
+    }
+    .demo-full__head {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    /* 未开启自定义参数：标题行（含复选框）整组居中，与下方居中的评论区对齐 */
+    .demo-full:not(.is-custom) .demo-full__head { justify-content: center; }
+    .demo-full__head h2 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.01em;
+      color: rgb(var(--mdui-color-on-background));
+    }
+    .demo-full__body { display: flex; gap: 24px; align-items: flex-start; }
+    .demo-full__comments { flex: 1 1 auto; min-width: 0; }
+    /* 开启自定义参数：右栏评论区铺满；未开启：回落 SDK 默认 760px 收窄居中 */
+    .demo-full.is-custom .demo-full__comments #comments.rs-root { max-width: none; margin: 0; }
+    .demo-full:not(.is-custom) .demo-full__comments #comments.rs-root { max-width: 760px; margin: 24px auto 0; }
+    @media (max-width: 920px) {
+      .demo-full { padding: 40px 20px 48px; }
+      .demo-full__body { flex-direction: column; }
+    }
+
+    /* 参数面板（左侧栏内单列排布） */
+    .adv-panel {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+      padding: 16px;
+      border: 1px dashed rgb(var(--mdui-color-outline-variant));
+      border-radius: 16px;
+      background: rgb(var(--mdui-color-surface-container-low));
+    }
+    /* display:grid 会盖过 hidden 属性的 UA 样式，需显式恢复隐藏 */
+    .adv-panel[hidden] { display: none; }
+    .demo-full__params { flex: 0 0 32%; min-width: 300px; max-width: 460px; }
+    @media (max-width: 920px) { .demo-full__params { flex-basis: auto; max-width: none; width: 100%; } }
+    .adv-panel mdui-text-field { width: 100%; }
+    .adv-row { display: flex; flex-wrap: wrap; gap: 12px; grid-column: 1 / -1; }
+    .adv-field { min-width: 220px; flex: 1; }
+    .adv-label {
+      font-size: 12px;
+      color: rgb(var(--mdui-color-on-surface-variant));
+      margin: 8px 0 6px;
+    }
+
+    /* colorPattern 调色板：预设色圆点 + 原生取色器 */
+    .color-picker { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .color-swatch {
+      appearance: none;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 2px solid rgb(var(--mdui-color-outline-variant));
+      cursor: pointer;
+      padding: 0;
+      transition: transform 0.15s ease;
+    }
+    .color-swatch:hover { transform: scale(1.15); }
+    .color-swatch.is-active {
+      box-shadow: 0 0 0 2px rgb(var(--mdui-color-surface-container-low)),
+                  0 0 0 4px rgb(var(--mdui-color-primary));
+    }
+    /* 自定义颜色入口：彩虹圆 +「+」，点击唤起原生取色窗（本体是隐藏的 input[type=color]） */
+    .color-swatch--custom {
+      background: conic-gradient(#f44336, #ff9800, #ffeb3b, #4caf50, #00bcd4, #2196f3, #9c27b0, #f44336);
+      color: #fff;
+      font-size: 15px;
+      line-height: 1;
+      font-weight: 700;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    }
+    @media (max-width: 640px) { .adv-panel { grid-template-columns: 1fr; } }
 
     /* Sections */
     .block { padding: 40px 0; }
@@ -87,19 +151,6 @@
       font-size: 15px;
       color: rgb(var(--mdui-color-on-surface-variant));
     }
-
-    /* Features */
-    .features {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
-    }
-    @media (max-width: 900px) { .features { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 600px) { .features { grid-template-columns: 1fr; } }
-    .feature { padding: 20px; }
-    .feature__icon { font-size: 28px; }
-    .feature h3 { margin: 12px 0 6px; font-size: 16px; color: rgb(var(--mdui-color-on-surface)); }
-    .feature p { margin: 0; font-size: 13.5px; color: rgb(var(--mdui-color-on-surface-variant)); }
 
     /* Code */
     .code {
@@ -159,14 +210,12 @@
 <body>
   <mdui-layout full-height>
     <mdui-top-app-bar variant="small">
-      <span class="topbar__brand">rustaline</span>
+      <span class="topbar__brand"><img class="topbar__logo" src="/icon.webp" alt="">Rustaline</span>
       <div class="topbar__spacer"></div>
       <nav class="topbar__links">
-        <mdui-button variant="text" href="#features" data-i18n="nav.features">特性</mdui-button>
         <mdui-button variant="text" href="#quickstart" data-i18n="nav.quickstart">快速开始</mdui-button>
         <mdui-button variant="text" href="#demo" data-i18n="nav.demo">在线演示</mdui-button>
         <mdui-button variant="text" href="/swagger-ui/" target="_blank">API</mdui-button>
-        <mdui-button variant="text" href="/scaffold-demo.html" data-i18n="nav.scaffold">脚手架示例</mdui-button>
       </nav>
       <mdui-button variant="text" id="lang-toggle">English</mdui-button>
     </mdui-top-app-bar>
@@ -174,11 +223,10 @@
     <mdui-layout-main>
       <div class="page-wrap">
         <section class="hero">
-          <span class="hero__eyebrow" data-i18n="hero.eyebrow">Valine 自托管替代</span>
-          <h1><span data-i18n="hero.t1">给你的博客</span><br><span data-i18n="hero.t2">装上 </span><em data-i18n="hero.t3">现代评论</em><span data-i18n="hero.t4">。</span></h1>
+          <h1><span data-i18n="hero.t1">类似</span><span class="hero-valine">Valine</span><span data-i18n="hero.t3">的</span><em data-i18n="hero.t2">开源评论服务</em></h1>
           <p class="lede" data-i18n="hero.lede">
-            rustaline 是一个零依赖、可自托管的评论系统。一个 script 标签 + 两行初始化代码，
-            即可为任意静态页面带来匿名评论、楼中楼回复、头像推导与垃圾评论防护。
+            Rustaline 是一个基于 Rust 语言，使用 axum 框架与 Sea-ORM 开发的简单评论服务。
+            支持楼中楼与 Gravatar。支持从 Valine 迁移数据。
           </p>
           <div class="hero__cta">
             <mdui-button variant="filled" href="#demo" data-i18n="hero.ctaDemo">立即试试评论 ↓</mdui-button>
@@ -186,44 +234,8 @@
           </div>
         </section>
 
-        <section class="block" id="features">
-          <div class="features">
-            <mdui-card class="feature">
-              <span class="feature__icon">📦</span>
-              <h3 data-i18n="feat.1.t">零依赖单文件</h3>
-              <p data-i18n="feat.1.p">原生 ES2018+，不依赖 jQuery / Vue / 任何 CDN，一个 rustaline.js 全部搞定。</p>
-            </mdui-card>
-            <mdui-card class="feature">
-              <span class="feature__icon">🌳</span>
-              <h3 data-i18n="feat.2.t">楼中楼回复</h3>
-              <p data-i18n="feat.2.p">沿用 Valine 经典 pid / rid 模型，回复嵌进父评论下并 @ 被回复者。</p>
-            </mdui-card>
-            <mdui-card class="feature">
-              <span class="feature__icon">🛡️</span>
-              <h3 data-i18n="feat.3.t">内置反垃圾</h3>
-              <p data-i18n="feat.3.p">蜜罐字段、IP 限流、可选审核先审后发，多层防护对抗机器人。</p>
-            </mdui-card>
-            <mdui-card class="feature">
-              <span class="feature__icon">🎨</span>
-              <h3 data-i18n="feat.4.t">可定制主题</h3>
-              <p data-i18n="feat.4.p">CSS 变量自由覆盖，深浅色自动跟随系统，移动端原生友好。</p>
-            </mdui-card>
-            <mdui-card class="feature">
-              <span class="feature__icon">🔒</span>
-              <h3 data-i18n="feat.5.t">隐私优先</h3>
-              <p data-i18n="feat.5.p">公共 API 永不返回 ip / mail / ua；头像由服务端推导，邮箱不落前端。</p>
-            </mdui-card>
-            <mdui-card class="feature">
-              <span class="feature__icon">🗄️</span>
-              <h3 data-i18n="feat.6.t">自托管数据</h3>
-              <p data-i18n="feat.6.p">评论落在你自己的 SQLite / PostgreSQL / MySQL，告别 LeanCloud 配额焦虑。</p>
-            </mdui-card>
-          </div>
-        </section>
-
         <section class="block" id="quickstart">
           <h2 data-i18n="qs.title">快速开始</h2>
-          <p class="section__desc" data-i18n="qs.desc">把下面两段代码贴进你的 HTML，评论系统就上线了。</p>
 
           <div class="code">
             <div class="code__head">
@@ -237,34 +249,76 @@
 <span class="tok-t">&lt;div</span> id=<span class="tok-s">"comments"</span><span class="tok-t">&gt;&lt;/div&gt;</span>
 <span class="tok-t">&lt;script&gt;</span>
   <span class="tok-k">new</span> Rustaline({
-    el: <span class="tok-s">'#comments'</span>,
-    server: <span class="tok-s">''</span>,                          <span class="tok-c" data-i18n="qs.code3">// 留空 = 同源；可填 https://api.example.com</span>
+    el: <span class="tok-s">'#comments'</span>,                     <span class="tok-c" data-i18n="qs.codeEl">// 挂载点（CSS 选择器或 DOM 元素）</span>
+    server: <span class="tok-s">''</span>,                         <span class="tok-c" data-i18n="qs.code3">// 留空 = 同源；可填 https://api.example.com</span>
     url: location.pathname,             <span class="tok-c" data-i18n="qs.code4">// 文章标识，默认当前路径</span>
+    lang: <span class="tok-s">'auto'</span>,                        <span class="tok-c" data-i18n="qs.codeLang">// 语言：'auto'（跟随浏览器）| 'zh-CN' | 'en'，或自定义字典</span>
     placeholder: <span class="tok-s" data-i18n="qs.codePlaceholder">'说点什么吧…'</span>,
-    gravatarCdn: <span class="tok-s">'https://gravatar.loli.net/avatar/'</span>
+    gravatarCdn: <span class="tok-s">'https://gravatar.loli.net/avatar/'</span>,  <span class="tok-c" data-i18n="qs.codeCdn">// 头像 CDN（gravatar 协议镜像）</span>
+    colorPattern: <span class="tok-s">'#2196f3'</span>,             <span class="tok-c" data-i18n="qs.codeColor">// 主题种子色，派生整套配色</span>
+    darkMode: <span class="tok-s">'auto'</span>                      <span class="tok-c" data-i18n="qs.codeDark">// 明暗：'auto'（跟随系统）| 'light' | 'dark'</span>
   });
 <span class="tok-t">&lt;/script&gt;</span></pre>
           </div>
-
-          <p style="font-size: 14px; color: rgb(var(--mdui-color-on-surface-variant)); margin: 16px 0 0;"><span data-i18n="qs.morePre">想看完整后端字段定义？参考 </span><a href="/swagger-ui/" target="_blank">Swagger UI</a><span data-i18n="qs.moreMid"> 中的 </span><code>/api/v1/comments</code><span data-i18n="qs.morePost"> 接口。</span></p>
         </section>
+      </div><!-- /page-wrap -->
 
-        <section class="block" id="demo">
+      <!-- 在线演示：全宽通栏（不进 page-wrap），左参数面板 + 右评论区 -->
+      <section id="demo" class="demo-full">
+        <div class="demo-full__head">
           <h2 data-i18n="demo.title">在线演示</h2>
-          <p class="section__desc">
-            <span data-i18n="demo.desc">下面这个评论框就是真实运行的 rustaline 实例。试着发一条评论、点回复、再刷新页面看看。</span>
-            <span style="color: rgb(var(--mdui-color-on-surface-variant));" data-i18n="demo.descNote">（需要后端服务已启动；若接口未就绪会显示加载失败与重试按钮。）</span>
-          </p>
-          <div id="comments">
-            <!-- rustaline SDK 会接管此节点 -->
-          </div>
-        </section>
+          <mdui-checkbox id="adv-toggle"><span data-i18n="demo.advanced">自定义配置参数</span></mdui-checkbox>
+        </div>
 
+        <div class="demo-full__body">
+          <!-- 自定义配置参数：调整 Rustaline 构造参数，任一变更即销毁重建实例 -->
+          <div id="adv-panel" class="adv-panel demo-full__params" hidden>
+            <mdui-text-field id="adv-server" label="server" variant="outlined" placeholder="https://api.example.com"></mdui-text-field>
+            <mdui-text-field id="adv-url" label="url" variant="outlined"></mdui-text-field>
+            <mdui-text-field id="adv-placeholder" label="placeholder" variant="outlined"></mdui-text-field>
+            <mdui-text-field id="adv-gravatar" label="gravatarCdn" variant="outlined"></mdui-text-field>
+            <mdui-text-field id="adv-color" label="colorPattern" variant="outlined" placeholder="#2196f3"></mdui-text-field>
+            <div class="adv-row">
+              <div class="adv-field">
+                <div class="adv-label" data-i18n="demo.advLang">语言</div>
+                <mdui-segmented-button-group id="adv-lang" selects="single">
+                  <mdui-segmented-button value="auto">Auto</mdui-segmented-button>
+                  <mdui-segmented-button value="zh-CN">中文</mdui-segmented-button>
+                  <mdui-segmented-button value="en">English</mdui-segmented-button>
+                </mdui-segmented-button-group>
+              </div>
+              <div class="adv-field">
+                <div class="adv-label" data-i18n="demo.advDark">明暗</div>
+                <mdui-segmented-button-group id="adv-dark" selects="single" value="auto">
+                  <mdui-segmented-button value="auto">Auto</mdui-segmented-button>
+                  <mdui-segmented-button value="light">Light</mdui-segmented-button>
+                  <mdui-segmented-button value="dark">Dark</mdui-segmented-button>
+                </mdui-segmented-button-group>
+              </div>
+            </div>
+            <div class="adv-row">
+              <div class="adv-field">
+                <div class="adv-label" data-i18n="demo.advColor">主题色</div>
+                <div class="color-picker" id="adv-colors">
+                  <!-- 预设色圆点 + 原生取色器由脚本生成；文本框 colorPattern 仍可手填 hex -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="demo-full__comments">
+            <div id="comments">
+              <!-- rustaline SDK 会接管此节点 -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="page-wrap">
         <footer>
           <span data-i18n="footer.left">rustaline · Valine 自托管替代品 · 基于 axum + sea-orm</span>
           <nav>
             <a href="/swagger-ui/" target="_blank" data-i18n="footer.api">API 文档</a>
-            <a href="/scaffold-demo.html" data-i18n="footer.scaffold">脚手架示例</a>
             <a href="/health" target="_blank" data-i18n="footer.health">健康检查</a>
           </nav>
         </footer>
@@ -278,14 +332,137 @@
   <script src="/index-i18n.js"></script>
   <!-- 引入 rustaline SDK -->
   <script src="/sdk/rustaline.js"></script>
-  <!-- 初始化评论实例：lang 跟随页面语言偏好（rustaline-lang），未设置时按浏览器语言探测 -->
+  <!-- 演示实例初始化 + 高级模式：调整构造参数并销毁重建 -->
   <script>
-    new Rustaline({
-      el: '#comments',
-      server: '',
-      url: location.pathname,
-      lang: window.rustalineIndexI18n ? window.rustalineIndexI18n.getLang() : 'auto'
-    });
+    (function () {
+      'use strict';
+      var pageLang = window.rustalineIndexI18n ? window.rustalineIndexI18n.getLang() : 'auto';
+      var state = {
+        server: '',
+        url: location.pathname,
+        lang: pageLang,
+        placeholder: '',
+        gravatarCdn: 'https://gravatar.loli.net/avatar/',
+        colorPattern: '#2196f3',
+        darkMode: 'auto'
+      };
+      var inst = null;
+
+      function rebuild() {
+        if (inst) { try { inst.destroy(); } catch (_) { /* noop */ } }
+        var opts = {
+          el: '#comments',
+          server: state.server,
+          url: state.url || location.pathname,
+          lang: state.lang || 'auto',
+          gravatarCdn: state.gravatarCdn,
+          colorPattern: state.colorPattern,
+          darkMode: state.darkMode
+        };
+        if (state.placeholder) opts.placeholder = state.placeholder;
+        inst = new Rustaline(opts);
+        syncSwatches();
+      }
+
+      function $(id) { return document.getElementById(id); }
+
+      /** mdui-text-field 赋值：host 属性 + 内部 input 三路同步（升级前后都有效） */
+      function setTextField(host, v) {
+        if (v == null) return;
+        try { host.value = v; } catch (_) { /* noop */ }
+        host.setAttribute('value', v);
+        var inner = host.shadowRoot && host.shadowRoot.querySelector('input');
+        if (inner) inner.value = v;
+      }
+
+      // 主题色调色板：预设色（与管理面板外观对话框同一组 Material 色）+ 原生取色器
+      var PALETTE = ['#2196f3', '#3f51b5', '#9c27b0', '#e91e63', '#f44336', '#ff9800', '#4caf50', '#009688'];
+      var swatchEls = [];
+
+      function syncSwatches() {
+        var cur = String(state.colorPattern || '').toLowerCase();
+        swatchEls.forEach(function (s) {
+          s.classList.toggle('is-active', s.dataset.color === cur);
+        });
+      }
+
+      function applyColor(hex) {
+        state.colorPattern = hex;
+        setTextField($('adv-color'), hex);
+        rebuild();
+      }
+
+      (function initPalette() {
+        var box = $('adv-colors');
+        PALETTE.forEach(function (hex) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'color-swatch';
+          b.style.background = hex;
+          b.dataset.color = hex;
+          b.title = hex;
+          b.setAttribute('aria-label', hex);
+          b.addEventListener('click', function () { applyColor(hex); });
+          box.appendChild(b);
+          swatchEls.push(b);
+        });
+        var customBtn = document.createElement('button');
+        customBtn.type = 'button';
+        customBtn.className = 'color-swatch color-swatch--custom';
+        customBtn.textContent = '+';
+        var customLabel = window.rustalineIndexI18n
+          ? window.rustalineIndexI18n.t('demo.advColorCustom') : '';
+        customBtn.title = customLabel;
+        customBtn.setAttribute('aria-label', customLabel);
+        // 隐藏的原生取色器本体：由按钮代理点击唤起，change（选定关闭）时应用
+        var hidden = document.createElement('input');
+        hidden.type = 'color';
+        hidden.hidden = true;
+        customBtn.addEventListener('click', function () { hidden.click(); });
+        hidden.addEventListener('change', function () { applyColor(this.value); });
+        box.appendChild(customBtn);
+        box.appendChild(hidden);
+      })();
+
+      function bindText(id, key) {
+        var host = $(id);
+        var last = state[key];
+        var commit = function () {
+          var v = String(host.value || '').trim();
+          if (v === last) return;
+          last = v;
+          state[key] = v;
+          rebuild();
+        };
+        host.addEventListener('change', commit);
+        host.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') commit();
+        });
+        // mdui-text-field 内部 input 的原生 change 可能被组件的程序化赋值清掉脏标记，
+        // 失焦时不触发；focusout 是 composed 事件、稳定冒到 host，作失焦提交兜底
+        host.addEventListener('focusout', function () { setTimeout(commit, 0); });
+      }
+
+      $('adv-url').setAttribute('value', state.url);
+      $('adv-gravatar').setAttribute('value', state.gravatarCdn);
+      $('adv-color').setAttribute('value', state.colorPattern);
+      $('adv-lang').setAttribute('value', state.lang === 'en' ? 'en' : (state.lang === 'zh-CN' ? 'zh-CN' : 'auto'));
+
+      $('adv-toggle').addEventListener('change', function () {
+        var on = this.checked;
+        $('adv-panel').hidden = !on;
+        $('demo').classList.toggle('is-custom', on);
+      });
+      bindText('adv-server', 'server');
+      bindText('adv-url', 'url');
+      bindText('adv-placeholder', 'placeholder');
+      bindText('adv-gravatar', 'gravatarCdn');
+      bindText('adv-color', 'colorPattern');
+      $('adv-lang').addEventListener('change', function () { state.lang = this.value; rebuild(); });
+      $('adv-dark').addEventListener('change', function () { state.darkMode = this.value; rebuild(); });
+
+      rebuild();
+    })();
   </script>
 </body>
 </html>

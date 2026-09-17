@@ -27,7 +27,10 @@
  *        → { total, results: [Comment] }（楼内回复，时间升序）
  *   POST {server}/api/v1/comments → Comment（创建后的）
  *   Thread = Comment 平铺字段 + { reply_count, replies: [Comment 预览，升序 ≤5 条] }
- *   Comment 字段：{ id, comment, nick, link, avatar, url, pid, rid, inserted_at }
+ *   Comment 字段：{ id, comment, nick, link, avatar, url, pid, rid, inserted_at,
+ *                  ua_summary }
+ *   ua_summary 为服务端解析的评论者环境摘要（如 "Chrome 126 · Windows"），
+ *   仅当后端 comment.display_commenter_user_agent = true 时下发，否则为 null（不渲染）
  *
  * 全局只挂 window.Rustaline，不污染其他名字空间。
  */
@@ -66,7 +69,7 @@
       loadMore: '加载更多评论',
       viewAllReplies: '查看全部 %d 条回复',
       continueThread: '继续查看这段对话（%d 条）›',
-      formHint: '支持 Markdown：[链接](https://...)、![图片](https://...)、**粗体**、*斜体*、`代码`；昵称邮箱将记住在本机',
+      formHint: '支持基本 Markdown 格式；昵称邮箱将保存在浏览器本地。',
       mdImage: '图片',
       mdImageError: '图片加载失败：',
       close: '关闭',
@@ -105,7 +108,7 @@
       loadMore: 'Load more comments',
       viewAllReplies: function (n) { return n === 1 ? 'View 1 reply' : 'View all ' + n + ' replies'; },
       continueThread: function (n) { return n === 1 ? 'Continue this thread (1) ›' : 'Continue this thread (' + n + ') ›'; },
-      formHint: 'Markdown: [links](https://...), ![images](https://...), **bold**, *italic*, `code`; nick & email are saved locally',
+      formHint: 'Basic Markdown is supported; nickname and email are saved in your browser.',
       mdImage: 'image',
       mdImageError: 'Failed to load image:',
       close: 'Close',
@@ -532,6 +535,17 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
+/* 评论者环境徽章（ua_summary）：小号 pill，服务端未下发时不渲染 */
+.rs-comment__ua {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--rs-on-surface-variant);
+  background: var(--rs-surface-container);
+  border-radius: 999px;
+  padding: 4px 9px;
+  white-space: nowrap;
+  align-self: center;
+}
 .rs-comment__content {
   font-size: var(--rs-font-size);
   line-height: var(--rs-line-height);
@@ -833,7 +847,7 @@
   /**
    * 极简 Markdown 子集渲染 → DocumentFragment（纯 DOM 构建，无 HTML 字符串解析）。
    * 支持：`code`、[链接](url)、![图片](url)（渲染为带图标的链接，点击弹模态框看图）、
-   * **粗体**、*斜体*；URL 仅接受 http(s)（safeLinkUrl），非法 / 未闭合语法一律按原文纯文本。
+   * **粗体**、*斜体*、~~删除线~~；URL 仅接受 http(s)（safeLinkUrl），非法 / 未闭合语法一律按原文纯文本。
    * bold 内部允许单层 * 以便嵌斜体/链接（递归深度 1）。
    * 注意：与 static/admin/js/markdown.js 保持同构同步。
    */
@@ -842,7 +856,8 @@
     '|!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)' +  // 2,3: 图片（以链接形式渲染）
     '|\\[([^\\]]+)\\]\\(([^)\\s]+)\\)' +   // 4,5: 链接
     '|\\*\\*((?:[^*]|\\*(?!\\*))+)\\*\\*' + // 6: 粗体（内部允许单个 *）
-    '|(?<!\\*)\\*(?!\\*)([^*]+?)(?<!\\*)\\*(?!\\*)'; // 7: 斜体（两侧不得再贴 *，防 **未闭合 误判）
+    '|(?<!\\*)\\*(?!\\*)([^*]+?)(?<!\\*)\\*(?!\\*)' + // 7: 斜体（两侧不得再贴 *，防 **未闭合 误判）
+    '|~~([^~]+)~~';                  // 8: 删除线
 
   // 图片链接前置图标（静态 SVG 常量，固定写死，不拼任何用户数据）
   var MD_IMAGE_ICON =
@@ -966,9 +981,10 @@
         } else {
           frag.appendChild(document.createTextNode(m[0])); // 非法 URL：整段原文
         }
-      } else if (m[6] !== undefined || m[7] !== undefined) {
-        var node = document.createElement(m[6] !== undefined ? 'strong' : 'em');
-        var inner = m[6] !== undefined ? m[6] : m[7];
+      } else if (m[6] !== undefined || m[7] !== undefined || m[8] !== undefined) {
+        var tag = m[6] !== undefined ? 'strong' : m[7] !== undefined ? 'em' : 'del';
+        var inner = m[6] !== undefined ? m[6] : m[7] !== undefined ? m[7] : m[8];
+        var node = document.createElement(tag);
         if (!depth) node.appendChild(renderMarkdown(inner, labels, 1));
         else node.textContent = inner;
         frag.appendChild(node);
@@ -1319,7 +1335,8 @@
       url: String(c.url != null ? c.url : ''),
       pid: c.pid != null && c.pid !== '' ? String(c.pid) : null,
       rid: c.rid != null && c.rid !== '' ? String(c.rid) : null,
-      inserted_at: c.inserted_at != null ? String(c.inserted_at) : null
+      inserted_at: c.inserted_at != null ? String(c.inserted_at) : null,
+      ua_summary: c.ua_summary != null && c.ua_summary !== '' ? String(c.ua_summary) : null
     };
   }
 
@@ -1662,6 +1679,11 @@
       title: c.inserted_at || '',
       text: formatRelativeTime(c.inserted_at, this.lang)
     }));
+    // 评论者环境徽章：服务端解析的 ua_summary（textContent 渲染防 XSS）；
+    // 后端 display_commenter_user_agent=false 或解析不出时为 null，不渲染
+    if (c.ua_summary) {
+      headChildren.push(h('span', { class: 'rs-comment__ua', text: c.ua_summary }));
+    }
 
     // 内容
     var contentChildren = [];
@@ -1792,6 +1814,7 @@
       pid: body.pid || null,
       rid: body.rid || null,
       inserted_at: new Date().toISOString(),
+      ua_summary: null,                   // 真实数据回来前不显示环境徽章
       _optimistic: true
     };
 

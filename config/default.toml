@@ -32,6 +32,10 @@ dir = "static"
 # 演示首页开关：false 时访问 / 返回 307 跳转 /admin/（SDK 与管理面板不受影响）
 introduction_index = true
 
+[swagger]
+# Swagger UI / OpenAPI 文档开关：false 时 /swagger-ui 与 /api-doc/openapi.json 不再挂载（404）
+enabled = true
+
 [comment]
 # true 时新评论 status=pending，需审核后才公开
 moderation = false
@@ -43,6 +47,9 @@ rate_limit_per_minute = 5
 default_nick = "Anonymous"
 # 邮箱头像（gravatar 协议）镜像 CDN；置空字符串则完全禁用邮箱头像层
 avatar_cdn = "https://gravatar.loli.net/avatar/"
+# 是否在公共评论响应中下发 UA 解析摘要（ua_summary，如 "Chrome 126 · Windows"），
+# 供 SDK 在评论旁显示评论者浏览器/系统徽章。默认开启
+display_commenter_user_agent = true
 
 # 管理员账号（唯一用户）没有默认值：APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD
 # （或嵌套写法 APP_INITIAL_ADMIN__USERNAME / APP_INITIAL_ADMIN__PASSWORD）

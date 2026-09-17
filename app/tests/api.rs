@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use app::config::{
     AppConfig, CommentConfig, DatabaseConfig, InitialAdminConfig, JwtConfig, LogConfig,
-    RedisConfig, ServerConfig, StaticConfig,
+    RedisConfig, ServerConfig, StaticConfig, SwaggerConfig,
 };
 use app::middleware::rate_limit::RateLimiter;
 use app::routes::create_router;
@@ -44,6 +44,7 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
             dir: concat!(env!("CARGO_MANIFEST_DIR"), "/../static").into(),
             introduction_index: true,
         },
+        swagger: SwaggerConfig::default(),
         comment: CommentConfig::default(),
         initial_admin: InitialAdminConfig {
             username: Some("admin".into()),
@@ -384,8 +385,42 @@ async fn openapi_json_is_served() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["info"]["title"], "bynrust26 API");
+    assert_eq!(body["info"]["title"], "Rustaline API");
     assert!(body["paths"]["/api/v1/auth/login"].is_object());
+}
+
+#[tokio::test]
+async fn swagger_ui_can_be_disabled() {
+    let mut config = test_config(false);
+    config.swagger.enabled = false;
+    let app = build_app_with_config(config).await;
+
+    // 文档路径不再挂载，落到静态兜底 404
+    for uri in ["/swagger-ui", "/swagger-ui/", "/api-doc/openapi.json"] {
+        let (status, _) = call(&app, json_request("GET", uri, None, None)).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "{uri} must 404 when disabled"
+        );
+    }
+
+    // 其余路由不受影响；admin config 如实下发开关（面板据此弹禁用提示）
+    let (status, _) = call(
+        &app,
+        json_request("GET", "/api/v1/comments?url=%2Fx", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let token = login(&app).await;
+    let (_, body) = call(
+        &app,
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
+    )
+    .await;
+    assert_eq!(body["swagger_ui"], false);
+    assert_eq!(body["introduction_index"], true);
 }
 
 #[tokio::test]
@@ -940,7 +975,10 @@ async fn admin_stats_and_config() {
     assert_eq!(body["comment"]["max_length"], 10000);
     assert_eq!(body["comment"]["rate_limit_per_minute"], 5);
     assert_eq!(body["comment"]["default_nick"], "Anonymous");
+    assert_eq!(body["comment"]["display_commenter_user_agent"], true);
     assert!(body["version"].is_string());
+    assert_eq!(body["introduction_index"], true);
+    assert_eq!(body["swagger_ui"], true);
 }
 
 #[tokio::test]
@@ -1409,6 +1447,124 @@ async fn comment_ua_is_truncated_to_column_width() {
     .await;
     let ua = body["items"][0]["ua"].as_str().unwrap();
     assert_eq!(ua.chars().count(), 512, "ua must be truncated to 512 chars");
+}
+
+const CHROME_WINDOWS_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+const IOS_SAFARI_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
+
+/// 带 UA 头提交评论（json_request 不支持任意头，沿用手工构造）
+async fn submit_with_ua(
+    app: &Router,
+    url: &str,
+    comment: &str,
+    pid: Option<&str>,
+    ua: &str,
+) -> (StatusCode, Value) {
+    let mut payload = json!({"url": url, "comment": comment});
+    if let Some(pid) = pid {
+        payload["pid"] = json!(pid);
+    }
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/comments")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::USER_AGENT, ua)
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    call(app, req).await
+}
+
+#[tokio::test]
+async fn ua_summary_hidden_when_disabled() {
+    let app = build_app_with_comment(CommentConfig {
+        display_commenter_user_agent: false,
+        ..CommentConfig::default()
+    })
+    .await;
+
+    let (status, body) = submit_with_ua(&app, "/ua-off", "hi", None, CHROME_WINDOWS_UA).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(
+        body["ua_summary"].is_null(),
+        "ua_summary must stay null when display_commenter_user_agent=false"
+    );
+    assert!(
+        body["ua"].is_null(),
+        "raw ua never appears in public response"
+    );
+
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/comments?url=%2Fua-off", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["roots"][0]["ua_summary"].is_null());
+
+    // 管理侧不受公共开关限制：原始 ua 与解析摘要都下发
+    let token = login(&app).await;
+    let (_, body) = call(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/admin/comments?url=%2Fua-off",
+            None,
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(body["items"][0]["ua"], CHROME_WINDOWS_UA);
+    assert_eq!(body["items"][0]["ua_summary"], "Chrome 126 · Windows");
+}
+
+#[tokio::test]
+async fn ua_summary_exposed_by_default() {
+    // 默认配置（display_commenter_user_agent = true）：创建/列表/楼内展开均下发摘要
+    let app = build_app(None, false).await;
+
+    // 顶层：Chrome on Windows
+    let (status, body) = submit_with_ua(&app, "/ua-on", "root", None, CHROME_WINDOWS_UA).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["ua_summary"], "Chrome 126 · Windows");
+    assert!(
+        body["ua"].is_null(),
+        "raw ua never appears even when enabled"
+    );
+    let root_id = body["id"].as_str().unwrap().to_owned();
+
+    // 回复：iOS Safari
+    let (status, body) =
+        submit_with_ua(&app, "/ua-on", "reply", Some(&root_id), IOS_SAFARI_UA).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["ua_summary"], "Safari 17 · iOS");
+
+    // 列表：root 与回复预览都带摘要，原始 ua 仍不出现
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/comments?url=%2Fua-on", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["roots"][0]["ua_summary"], "Chrome 126 · Windows");
+    assert_eq!(
+        body["roots"][0]["replies"][0]["ua_summary"],
+        "Safari 17 · iOS"
+    );
+    assert!(body["roots"][0]["ua"].is_null());
+
+    // 楼内展开接口同样带摘要
+    let (status, body) = call(
+        &app,
+        json_request(
+            "GET",
+            &format!("/api/v1/comments/replies?url=%2Fua-on&rid={root_id}"),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["results"][0]["ua_summary"], "Safari 17 · iOS");
 }
 
 #[tokio::test]

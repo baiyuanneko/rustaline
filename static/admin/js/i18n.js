@@ -62,6 +62,8 @@ const DICTS = {
     "nav.demo": "演示页 ↗",
     "nav.demoDisabledTitle": "演示页已禁用",
     "nav.demoDisabled": "演示页已被环境变量禁用",
+    "nav.swaggerDisabledTitle": "Swagger UI 已禁用",
+    "nav.swaggerDisabled": "Swagger UI 已被环境变量禁用，API 文档不可访问",
 
     // ---- 外观 / 偏好 ----
     "prefs.openLabel": "外观设置",
@@ -171,6 +173,7 @@ const DICTS = {
     "detail.link": "个人链接",
     "detail.qqAvatar": "QQ 头像",
     "detail.ip": "IP",
+    "detail.uaSummary": "评论者环境",
     "detail.ua": "User-Agent",
     "detail.insertedAt": "插入时间",
     "detail.createdAt": "创建时间",
@@ -259,6 +262,7 @@ const DICTS = {
     "settings.hintRateLimit": "单 IP 每分钟最多提交数",
     "settings.hintDefaultNick": "未提供昵称时的默认值",
     "settings.hintAvatarCdn": "邮箱头像 CDN（gravatar 协议镜像）；空 = 禁用邮箱头像层",
+    "settings.hintDisplayUa": "是否在公共评论响应中下发 UA 解析摘要（ua_summary）；开启后 SDK 在评论旁显示评论者浏览器/系统徽章",
     "settings.hintVersion": "后端版本号",
     "settings.emptyValue": "(空)",
     "settings.configNotePre": "如需修改配置，请编辑 ",
@@ -330,6 +334,8 @@ const DICTS = {
     "nav.demo": "Demo ↗",
     "nav.demoDisabledTitle": "Demo page disabled",
     "nav.demoDisabled": "The demo page has been disabled by environment variable",
+    "nav.swaggerDisabledTitle": "Swagger UI disabled",
+    "nav.swaggerDisabled": "Swagger UI has been disabled by environment variable; API docs are unavailable",
 
     // ---- appearance / prefs ----
     "prefs.openLabel": "Appearance",
@@ -440,6 +446,7 @@ const DICTS = {
     "detail.link": "Website",
     "detail.qqAvatar": "QQ avatar",
     "detail.ip": "IP",
+    "detail.uaSummary": "Commenter UA (parsed)",
     "detail.ua": "User-Agent",
     "detail.insertedAt": "Inserted at",
     "detail.createdAt": "Created at",
@@ -532,6 +539,7 @@ const DICTS = {
     "settings.hintRateLimit": "Max submissions per IP per minute",
     "settings.hintDefaultNick": "Default nick when none provided",
     "settings.hintAvatarCdn": "Email avatar CDN (gravatar-compatible mirror); empty = disable email avatars",
+    "settings.hintDisplayUa": "Whether to include the parsed UA summary (ua_summary) in public comment responses; when enabled the SDK shows a browser/OS badge next to comments",
     "settings.hintVersion": "Backend version",
     "settings.emptyValue": "(empty)",
     "settings.configNotePre": "To change configuration, edit ",

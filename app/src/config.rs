@@ -17,6 +17,8 @@ pub struct AppConfig {
     #[serde(rename = "static")]
     pub static_: StaticConfig,
     #[serde(default)]
+    pub swagger: SwaggerConfig,
+    #[serde(default)]
     pub comment: CommentConfig,
     #[serde(default)]
     pub initial_admin: InitialAdminConfig,
@@ -65,6 +67,19 @@ fn default_true() -> bool {
     true
 }
 
+/// Swagger UI / OpenAPI 文档开关；关闭后 /swagger-ui 与 /api-doc/openapi.json 不再挂载（404）
+#[derive(Debug, Clone, Deserialize)]
+pub struct SwaggerConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for SwaggerConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct CommentConfig {
     /// true 时新评论 status=pending，需审核后才公开
@@ -82,6 +97,10 @@ pub struct CommentConfig {
     /// 邮箱头像（gravatar 协议）镜像 CDN；置空字符串 = 完全禁用邮箱头像层
     #[serde(default = "default_avatar_cdn")]
     pub avatar_cdn: String,
+    /// 是否在公共评论响应中下发 UA 解析摘要（ua_summary，如 "Chrome 126 · Windows"）。
+    /// 默认开启；原始 ua 仍只在管理接口出现，关闭该开关即恢复不下发
+    #[serde(default = "default_true")]
+    pub display_commenter_user_agent: bool,
 }
 
 fn default_avatar_cdn() -> String {
@@ -106,6 +125,7 @@ impl Default for CommentConfig {
             rate_limit_per_minute: default_rate_limit_per_minute(),
             default_nick: default_nick(),
             avatar_cdn: default_avatar_cdn(),
+            display_commenter_user_agent: true,
         }
     }
 }
@@ -147,6 +167,7 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_LOG_LEVEL", "log.level"),
     ("APP_STATIC_DIR", "static.dir"),
     ("APP_ENABLE_INTRODUCTION_INDEX", "static.introduction_index"),
+    ("APP_ENABLE_SWAGGER_UI", "swagger.enabled"),
     ("APP_COMMENT_MODERATION", "comment.moderation"),
     ("APP_COMMENT_MAX_LENGTH", "comment.max_length"),
     (
@@ -155,6 +176,10 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ),
     ("APP_COMMENT_DEFAULT_NICK", "comment.default_nick"),
     ("APP_AVATAR_CDN", "comment.avatar_cdn"),
+    (
+        "APP_DISPLAY_COMMENTER_USER_AGENT",
+        "comment.display_commenter_user_agent",
+    ),
     ("APP_INITIAL_ADMIN_USERNAME", "initial_admin.username"),
     ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
 ];

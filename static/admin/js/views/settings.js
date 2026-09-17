@@ -56,6 +56,7 @@ function renderConfig(cfg) {
     ["rate_limit_per_minute", comment.rate_limit_per_minute, t("settings.hintRateLimit")],
     ["default_nick", comment.default_nick, t("settings.hintDefaultNick")],
     ["avatar_cdn", comment.avatar_cdn || t("settings.emptyValue"), t("settings.hintAvatarCdn")],
+    ["display_commenter_user_agent", comment.display_commenter_user_agent, t("settings.hintDisplayUa")],
     ["version", version, t("settings.hintVersion")],
   ];
 

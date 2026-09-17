@@ -15,8 +15,14 @@ use crate::{handlers, openapi};
 pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/health", get(handlers::health::health))
-        .nest("/api/v1", api_v1(state.clone()))
-        .merge(openapi::swagger_ui());
+        .nest("/api/v1", api_v1(state.clone()));
+
+    // Swagger UI 开关（APP_ENABLE_SWAGGER_UI）：关闭时不挂载，路径落到静态兜底 404
+    let router = if state.config.swagger.enabled {
+        router.merge(openapi::swagger_ui())
+    } else {
+        router
+    };
 
     // 演示页禁用（static.introduction_index = false）时，给 / 显式挂临时重定向到管理面板，
     // 优先于 ServeDir 兜底；用 307 而非 301，开关回改后浏览器不会缓存死重定向

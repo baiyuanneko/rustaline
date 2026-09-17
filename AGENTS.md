@@ -12,7 +12,7 @@ bynrust26/
 │                         # static.introduction_index=false（APP_ENABLE_INTRODUCTION_INDEX）时 / 改挂 307 重定向到 /admin/（routes/mod.rs）
 │   ├── index.html        # rustaline 评论系统演示主页（mdui 风格，引入 sdk/rustaline.js；中英双语 data-i18n 标记）
 │   ├── index-i18n.js     # 演示页 i18n：独立小字典（zh-CN/en）+ data-i18n 填充 + 右上角语言切换按钮
-│   ├── scaffold-demo.html# 原脚手架示例页（health / 401 / Swagger 演示，仅中文）
+│   ├── icon.webp         # 站点图标（各页面 favicon + 演示主页左上角 logo）
 │   ├── theme.js          # mdui 主题初始化（默认种子色 #2196f3 Material 蓝；主题色与明暗模式 light/dark/auto 均持久化于 localStorage，页面侧经 window.rustalineTheme 读写）
 │   ├── vendor/mdui/      # 本地 vendor 的 mdui 2.1.5（mdui.global.js / mdui.css / LICENSE / SHA256SUMS）
 │   ├── sdk/rustaline.js  # 评论 SDK：零依赖单文件，Material 3 视觉，全局 Rustaline 类，支持多实例；内置 zh-CN/en 双字典（lang 参数 / Rustaline.langs）；配色由 colorPattern 种子色派生（默认 #2196f3 淡蓝），darkMode 控制明暗（默认 auto 跟随系统）
@@ -62,7 +62,7 @@ JWT 密钥启动时强制校验（`config.rs::validate_jwt_secret`，在 main.rs
   2. 覆盖 `mdui.global.js`、`mdui.css`、`LICENSE`；
   3. 更新 `VERSION`；
   4. 在 `static/vendor/mdui/` 下执行 `sha256sum mdui.global.js mdui.css > SHA256SUMS`；
-  5. 全量跑一遍主页 / 脚手架 / 管理面板的 Playwright 回归；
+  5. 全量跑一遍主页 / 管理面板的 Playwright 回归；
   6. 更新 README 与本文件中的版本号。
 - 校验：`cd static/vendor/mdui && sha256sum -c SHA256SUMS`。
 
@@ -86,7 +86,7 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - 新接口三件套同步更新：`handlers/` 加 `#[utoipa::path]`、`dto/` 加 `ToSchema` 模型、`openapi.rs` 的 `paths(...)` / `components(schemas(...))` 注册。
 - 除 login / health / swagger 外，接口一律加 `AuthUser` extractor 参数做认证。**例外**：公共评论接口 `GET/POST /api/v1/comments` 按 Valine 语义匿名开放，靠限流 + 蜜罐 + moderation 防滥用。
 - 需要登录的接口在 utoipa 注解里加 `security(("bearer_auth" = []))`。
-- 公共评论响应 DTO 绝不包含 ip / mail / ua / status（隐私）；这些字段仅出现在 `/api/v1/admin/*` 响应中。
+- 公共评论响应 DTO 绝不包含 ip / mail / ua / status（隐私）；这些字段仅出现在 `/api/v1/admin/*` 响应中。唯一例外：`ua_summary`（`services/ua.rs` 解析出的评论者环境摘要，如 "Chrome 126 · Windows"），由 `comment.display_commenter_user_agent`（env `APP_DISPLAY_COMMENTER_USER_AGENT`）控制，默认开启；原始 ua 仍绝不进公共响应。
 - 提交评论的 ip/ua 由服务端采集（ConnectInfo socket addr 优先、X-Forwarded-For 兜底），客户端 body 传的一律忽略。
 - 迁移用 sea-query 跨库写法（`sea_orm_migration::schema::*` 辅助函数），不要写单库专有 SQL；新迁移文件命名 `mYYYYMMDD_NNNNNN_<描述>.rs` 并注册进 `migration/src/lib.rs`。
 - 时间戳统一 `chrono::NaiveDateTime`（实体 `DateTime`，migration 用 `date_time(...)`），由 service 层显式赋值。序列化为 UTC 朴素时间（无时区后缀）；**前端（SDK / 管理面板）解析时必须按 UTC 处理**（现有 `parseServerTime` 助手），否则非 UTC 时区显示偏差。

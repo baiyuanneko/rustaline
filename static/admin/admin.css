@@ -775,7 +775,8 @@ mdui-badge[hidden] {
 /* ---- 设置 / 详情键值列表 ---- */
 .kv-list {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
+  /* 键列按最长键自适应（如 display_commenter_user_agent），固定宽度会溢出叠到值列上 */
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 0;
   margin: 0;
 }
@@ -787,6 +788,8 @@ mdui-badge[hidden] {
   border-top: 1px solid rgb(var(--mdui-color-outline-variant));
   font-size: 13px;
   color: rgb(var(--mdui-color-on-surface-variant));
+  /* 兜底：异常长的键换行而非溢出重叠 */
+  overflow-wrap: anywhere;
 }
 
 .kv-list__val {
