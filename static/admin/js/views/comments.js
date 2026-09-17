@@ -193,6 +193,16 @@ function buildUrlFilter() {
       reload();
     }
   };
+  // 输入框本身可作为自由输入的筛选项：失焦 / 回车 / 面板收起时，
+  // 把当前输入的 url（无论是否在下拉候选里）作为筛选值提交。
+  // 后端按归一化后的精确匹配查询，查不到就返回空列表，输入错误无副作用。
+  const commitInput = () => {
+    const v = String(input.value || "").trim();
+    if (v === state.url) return;
+    state.url = v;
+    state.page = 1;
+    reload();
+  };
   const renderOptions = (kw) => {
     const k = String(kw || "").trim().toLowerCase();
     const matched = k
@@ -218,6 +228,16 @@ function buildUrlFilter() {
       opt.addEventListener("click", () => choose(u));
       panel.appendChild(opt);
     }
+    // 输入的不是已有候选时，给出「按此 URL 筛选」入口（自由输入任意 url）
+    if (k && !matched.some((u) => u.toLowerCase() === k)) {
+      const use = el("div", {
+        class: "url-filter__opt url-filter__opt--custom",
+        text: t("filter.useThisUrl", { url: String(input.value || "").trim() }),
+        title: String(input.value || "").trim(),
+      });
+      use.addEventListener("click", () => choose(String(input.value).trim()));
+      panel.appendChild(use);
+    }
   };
   const open = () => {
     renderOptions("");
@@ -231,6 +251,20 @@ function buildUrlFilter() {
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") close();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitInput();
+      close();
+      input.blur();
+    }
+  });
+  input.addEventListener("focusout", () => {
+    // 点选候选项时 focusout 先于 click，延后一拍避免吞掉点选
+    setTimeout(() => {
+      if (!urlFilter || !urlFilter.box.isConnected) return;
+      if (panel.style.display !== "none") return; // 面板仍开着：用户正在点选
+      commitInput();
+    }, 120);
   });
 
   box.appendChild(input);
@@ -553,6 +587,10 @@ function openDetail(item) {
         image: t("comments.mdImage"),
         imageError: t("comments.mdImageError"),
         close: t("common.close"),
+        linkConfirmTitle: t("detail.linkConfirmTitle"),
+        linkConfirmText: t("detail.linkConfirmText"),
+        linkConfirmCancel: t("common.cancel"),
+        linkConfirmProceed: t("detail.linkConfirmProceed"),
       }));
       body.appendChild(commentBox);
 

@@ -772,6 +772,48 @@ mdui-badge[hidden] {
   font-variant-numeric: tabular-nums;
 }
 
+.rank-row__debug {
+  flex: 0 0 auto;
+  --mdui-comp-button-height: 32px;
+  font-size: 12.5px;
+}
+
+/* ---- 评论区外链确认：涟漪 + mdui 确认框 ---- */
+/* clip-path 裁剪涟漪（overflow:hidden 会让 inline-block 基线变为盒底缘，文字错位） */
+.rs-md-link {
+  display: inline-block;
+  position: relative;
+  clip-path: inset(0);
+}
+.rs-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: currentColor;
+  opacity: 0.25;
+  transform: scale(0);
+  animation: rs-ripple-admin 0.55s ease-out forwards;
+}
+@keyframes rs-ripple-admin {
+  to { transform: scale(2.6); opacity: 0; }
+}
+.link-confirm__body {
+  display: grid;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.link-confirm__url {
+  padding: 9px 12px;
+  background: rgb(var(--mdui-color-surface-container));
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: rgb(var(--mdui-color-on-surface-variant));
+  word-break: break-all;
+  max-height: 72px;
+  overflow: auto;
+}
+
 /* ---- 设置 / 详情键值列表 ---- */
 .kv-list {
   display: grid;
@@ -812,6 +854,75 @@ mdui-badge[hidden] {
   .kv-list__val {
     padding-top: 0;
   }
+}
+
+/* ---- 调试页：左参数面板 + 右实时预览（与首页在线演示自定义配置形态一致） ---- */
+.debug-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.debug-params {
+  flex: 0 0 32%;
+  min-width: 300px;
+  max-width: 460px;
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border: 1px dashed rgb(var(--mdui-color-outline-variant));
+  border-radius: 16px;
+  background: rgb(var(--mdui-color-surface-container-low));
+}
+.debug-params mdui-text-field { width: 100%; }
+.debug-preview { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 920px) {
+  .debug-layout { flex-direction: column; }
+  .debug-params { flex-basis: auto; max-width: none; width: 100%; }
+}
+.debug-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.debug-field { min-width: 220px; flex: 1; }
+.debug-label {
+  font-size: 12px;
+  color: rgb(var(--mdui-color-on-surface-variant));
+  margin: 8px 0 6px;
+}
+.color-picker { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.color-swatch {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--mdui-color-outline-variant));
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s ease;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.is-active {
+  box-shadow: 0 0 0 2px rgb(var(--mdui-color-surface-container-low)),
+              0 0 0 4px rgb(var(--mdui-color-primary));
+}
+/* 自定义颜色入口：彩虹圆 +「+」视觉，原生取色器透明覆盖承接点击（弹窗锚定在按钮处） */
+.color-custom { position: relative; display: inline-block; }
+.color-custom__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.color-custom:hover .color-swatch { transform: scale(1.15); }
+.color-swatch--custom {
+  background: conic-gradient(#f44336, #ff9800, #ffeb3b, #4caf50, #00bcd4, #2196f3, #9c27b0, #f44336);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 /* ---- 空状态 / 加载 ---- */

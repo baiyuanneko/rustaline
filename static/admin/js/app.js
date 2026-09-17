@@ -16,6 +16,7 @@ import * as dashboardView from "./views/dashboard.js";
 import * as commentsView from "./views/comments.js";
 import * as importView from "./views/import.js";
 import * as settingsView from "./views/settings.js";
+import * as debugView from "./views/debug.js";
 
 const ROUTES = {
   "#/login": { view: loginView, public: true, nav: null },
@@ -23,6 +24,7 @@ const ROUTES = {
   "#/comments": { view: commentsView, public: false, nav: "comments" },
   "#/import": { view: importView, public: false, nav: "import" },
   "#/settings": { view: settingsView, public: false, nav: "settings" },
+  "#/debug": { view: debugView, public: false, nav: "debug" },
 };
 
 const DEFAULT_ROUTE = "#/dashboard";

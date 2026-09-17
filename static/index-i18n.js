@@ -22,6 +22,7 @@
       'hero.lede': 'Rustaline 是一个基于 Rust 语言，使用 axum 框架与 Sea-ORM 开发的简单评论服务。支持楼中楼与 Gravatar。支持从 Valine 迁移数据。',
       'hero.ctaDemo': '立即试试评论 ↓',
       'hero.ctaDocs': '查看接入文档',
+      'hero.ctaAdmin': '进入管理员后台 →',
 
       'qs.title': '快速开始',
       'qs.code1': '<!-- ① 引入 SDK（同源部署，或填完整 URL 跨域调用）-->',
@@ -42,7 +43,8 @@
       'demo.advColor': '主题色',
       'demo.advColorCustom': '自定义颜色',
 
-      'footer.left': 'rustaline · Valine 自托管替代品 · 基于 axum + sea-orm',
+      'footer.madeWith': 'Made with ♥️ by ',
+      'footer.license': ', BSD 3-Clause "New" or "Revised" License Licensed.',
       'footer.api': 'API 文档',
       'footer.health': '健康检查',
 
@@ -62,6 +64,7 @@
       'hero.lede': 'Rustaline is a simple comment service written in Rust with the axum framework and Sea-ORM. It supports nested replies and Gravatar, and you can migrate your data from Valine.',
       'hero.ctaDemo': 'Try the demo ↓',
       'hero.ctaDocs': 'Integration guide',
+      'hero.ctaAdmin': 'Admin panel →',
 
       'qs.title': 'Quick start',
       'qs.code1': '<!-- ① Load the SDK (same-origin, or a full URL for cross-origin) -->',
@@ -82,7 +85,8 @@
       'demo.advColor': 'Theme color',
       'demo.advColorCustom': 'Custom color',
 
-      'footer.left': 'rustaline · a self-hosted Valine alternative · built on axum + sea-orm',
+      'footer.madeWith': 'Made with ♥️ by ',
+      'footer.license': ', BSD 3-Clause "New" or "Revised" License Licensed.',
       'footer.api': 'API docs',
       'footer.health': 'Health check',
 

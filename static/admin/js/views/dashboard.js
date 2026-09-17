@@ -111,6 +111,17 @@ function urlRankSection(stats) {
       });
       row.appendChild(url);
       row.appendChild(el("span", { class: "rank-row__count", text: t("dash.itemCount", entry.count) }));
+      // 调试 SDK：带 url 跳到调试页并预填
+      const debugBtn = el("mdui-button", {
+        class: "rank-row__debug",
+        variant: "text",
+        text: t("dash.debugSdk"),
+        title: t("dash.debugSdkTitle"),
+      });
+      debugBtn.addEventListener("click", () => {
+        location.hash = entry.url ? `#/debug?url=${encodeURIComponent(entry.url)}` : "#/debug";
+      });
+      row.appendChild(debugBtn);
       body.appendChild(row);
     });
   }

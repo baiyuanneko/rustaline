@@ -81,7 +81,11 @@
       timeJustNow: '刚刚',
       timeMinutesAgo: function (n) { return n + ' 分钟前'; },
       timeHoursAgo: function (n) { return n + ' 小时前'; },
-      timeDaysAgo: function (n) { return n + ' 天前'; }
+      timeDaysAgo: function (n) { return n + ' 天前'; },
+      linkConfirmTitle: '离开 rustaline',
+      linkConfirmText: '即将在新标签页打开外部链接，确定继续吗？',
+      linkConfirmCancel: '取消',
+      linkConfirmProceed: '继续访问'
     },
     'en': {
       loading: 'Loading…',
@@ -120,7 +124,11 @@
       timeJustNow: 'just now',
       timeMinutesAgo: function (n) { return n === 1 ? '1 minute ago' : n + ' minutes ago'; },
       timeHoursAgo: function (n) { return n === 1 ? '1 hour ago' : n + ' hours ago'; },
-      timeDaysAgo: function (n) { return n === 1 ? '1 day ago' : n + ' days ago'; }
+      timeDaysAgo: function (n) { return n === 1 ? '1 day ago' : n + ' days ago'; },
+      linkConfirmTitle: 'Leaving this page',
+      linkConfirmText: 'The external link will open in a new tab. Continue?',
+      linkConfirmCancel: 'Cancel',
+      linkConfirmProceed: 'Continue'
     }
   };
 
@@ -529,6 +537,51 @@
 }
 .rs-author:hover { text-decoration: underline; text-underline-offset: 2px; }
 .rs-author--op { color: var(--rs-primary); }
+
+/* ---- 外链确认：涟漪 + 模态卡片 ---- */
+/* 涟漪裁剪用 clip-path 而非 overflow:hidden：overflow 非 visible 的 inline-block
+   基线会变成盒子底边缘，导致链接与周围文字不在同一水平线上 */
+.rs-md-link, a.rs-author { display: inline-block; position: relative; clip-path: inset(0); }
+.rs-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: currentColor;
+  opacity: 0.25;
+  transform: scale(0);
+  animation: rs-ripple 0.55s ease-out forwards;
+}
+@keyframes rs-ripple {
+  to { transform: scale(2.6); opacity: 0; }
+}
+.rs-link-confirm .rs-link-confirm__card {
+  /* 遮罩挂在 body 下、不在 .rs-root 内，令牌需显式回落 */
+  background: var(--rs-surface-container-lowest, #ffffff);
+  color: var(--rs-on-surface, #191f25);
+  border: 1px solid var(--rs-outline-variant, #d1dae0);
+  border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.28);
+  max-width: min(92vw, 440px);
+  padding: 22px;
+  cursor: default;
+}
+.rs-link-confirm__title { font-weight: 700; font-size: 16px; margin-bottom: 8px; }
+.rs-link-confirm__text { font-size: 13.5px; color: var(--rs-on-surface-variant, #405f77); line-height: 1.6; }
+.rs-link-confirm__url {
+  margin: 12px 0 4px;
+  padding: 9px 12px;
+  background: var(--rs-surface-container, #eaeef1);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--rs-on-surface-variant, #405f77);
+  word-break: break-all;
+  max-height: 72px;
+  overflow: auto;
+}
+.rs-link-confirm__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.rs-link-confirm__btn { height: 36px; padding: 0 18px; font-size: 13.5px; }
+.rs-link-confirm__btn.rs-btn--ghost { color: var(--rs-primary, #0b76cb); border-color: var(--rs-outline, #5b7e9a); background: transparent; }
+.rs-link-confirm__btn.rs-btn--primary { background: var(--rs-primary, #0b76cb); color: var(--rs-on-primary, #ffffff); }
 .rs-comment__time {
   font-size: 12px;
   color: var(--rs-on-surface-variant);
@@ -949,6 +1002,113 @@
     });
   }
 
+  // 当前打开中的确认框的关闭函数：开新框前先干净关掉旧框（含 keydown 监听），
+  // 防止长按松开连发 click 叠出多个隐形遮罩挡住整页（表现为页面卡死）
+  var activeLinkConfirmClose = null;
+
+  /**
+   * 外链离开确认模态框：点击作者 / Markdown 链接不再直接跳转，先弹窗询问。
+   * 布局复用 rs-image-overlay 的遮罩层；「继续访问」在新标签打开（noopener nofollow ugc）。
+   */
+  function showLinkConfirmModal(url, labels) {
+    if (activeLinkConfirmClose) activeLinkConfirmClose();
+    var overlay = document.createElement('div');
+    overlay.className = 'rs-image-overlay rs-link-confirm';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.tabIndex = -1;
+
+    function close() {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      if (activeLinkConfirmClose === close) activeLinkConfirmClose = null;
+    }
+    var onKey = function (e) { if (e.key === 'Escape') close(); };
+
+    var card = document.createElement('div');
+    card.className = 'rs-link-confirm__card';
+
+    var title = document.createElement('div');
+    title.className = 'rs-link-confirm__title';
+    title.textContent = langVal(labels, 'linkConfirmTitle');
+
+    var text = document.createElement('div');
+    text.className = 'rs-link-confirm__text';
+    text.textContent = langVal(labels, 'linkConfirmText');
+
+    var urlLine = document.createElement('div');
+    urlLine.className = 'rs-link-confirm__url';
+    urlLine.textContent = url;
+
+    var actions = document.createElement('div');
+    actions.className = 'rs-link-confirm__actions';
+
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'rs-btn rs-btn--ghost rs-link-confirm__btn';
+    cancel.textContent = langVal(labels, 'linkConfirmCancel');
+    cancel.addEventListener('click', close);
+
+    var proceed = document.createElement('button');
+    proceed.type = 'button';
+    proceed.className = 'rs-btn rs-btn--primary rs-link-confirm__btn';
+    proceed.textContent = langVal(labels, 'linkConfirmProceed');
+    proceed.addEventListener('click', function () {
+      var w = window.open(url, '_blank', 'noopener');
+      if (w) w.opener = null;
+      close();
+    });
+
+    actions.appendChild(cancel);
+    actions.appendChild(proceed);
+    card.appendChild(title);
+    card.appendChild(text);
+    card.appendChild(urlLine);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) close();
+    });
+    document.addEventListener('keydown', onKey, true);
+    activeLinkConfirmClose = close;
+    document.body.appendChild(overlay);
+    overlay.focus();
+  }
+
+  /** 给外链锚点挂「确认后新标签打开」拦截；涟漪在按下瞬间即触发（长按也有反馈） */
+  function attachLinkConfirm(anchor, url, labels) {
+    anchor.addEventListener('pointerdown', function (e) {
+      spawnRipple(anchor, e);
+    });
+    anchor.addEventListener('click', function (e) {
+      e.preventDefault();
+      showLinkConfirmModal(url, labels);
+    });
+    // 长按拖动会触发浏览器原生链接拖拽 ghost，视觉上像页面失控，直接禁掉
+    anchor.addEventListener('dragstart', function (e) {
+      e.preventDefault();
+    });
+  }
+
+  /** 在锚点内生成一次点击涟漪（.rs-md-link / a.rs-author 需 position:relative; clip-path:inset(0)） */
+  function spawnRipple(anchor, e) {
+    var rect = anchor.getBoundingClientRect();
+    var d = Math.max(rect.width, rect.height) * 2;
+    // 去重：同一锚点上同时只保留一个涟漪节点（animationend 在后台标签页会被暂停，
+    // 不清理会永久残留堆积，节点多了拖垮页面）
+    var old = anchor.querySelector('.rs-ripple');
+    if (old) old.remove();
+    var dot = document.createElement('span');
+    dot.className = 'rs-ripple';
+    dot.style.width = dot.style.height = d + 'px';
+    dot.style.left = (e.clientX - rect.left - d / 2) + 'px';
+    dot.style.top = (e.clientY - rect.top - d / 2) + 'px';
+    anchor.appendChild(dot);
+    dot.addEventListener('animationend', function () { dot.remove(); });
+    setTimeout(function () { if (dot.parentNode) dot.remove(); }, 900);
+  }
+
   function renderMarkdown(text, labels, depth) {
     var frag = document.createDocumentFragment();
     var src = String(text == null ? '' : text);
@@ -975,6 +1135,10 @@
             a.className = 'rs-md-image';
             a.appendChild(mdImageIcon());
             attachImageViewer(a, safe, label, labels);
+          } else {
+            // 文本链接：拦截直接跳转，弹确认模态框（涟漪为样式层效果）
+            a.classList.add('rs-md-link');
+            attachLinkConfirm(a, safe, labels);
           }
           a.appendChild(document.createTextNode(label));
           frag.appendChild(a);
@@ -1665,11 +1829,14 @@
     var headChildren = [];
     var safeUrl = safeLinkUrl(c.link);
     if (safeUrl) {
-      headChildren.push(h('a', {
+      var authorLink = h('a', {
         class: 'rs-author', href: safeUrl,
         target: '_blank', rel: 'noopener nofollow ugc',
         text: c.nick
-      }));
+      });
+      // 点击作者不直接跳转：先弹确认模态框
+      attachLinkConfirm(authorLink, safeUrl, this.lang);
+      headChildren.push(authorLink);
     } else {
       headChildren.push(h('span', { class: 'rs-author', text: c.nick }));
     }
@@ -1698,6 +1865,11 @@
       image: langVal(this.lang, 'mdImage'),
       imageError: langVal(this.lang, 'mdImageError'),
       close: langVal(this.lang, 'close'),
+      // 文本链接确认框文案：labels 是逐键解析的扁平对象，必须显式带上（漏了就是空白模态框）
+      linkConfirmTitle: langVal(this.lang, 'linkConfirmTitle'),
+      linkConfirmText: langVal(this.lang, 'linkConfirmText'),
+      linkConfirmCancel: langVal(this.lang, 'linkConfirmCancel'),
+      linkConfirmProceed: langVal(this.lang, 'linkConfirmProceed'),
     }));
 
     // 操作：回复按钮

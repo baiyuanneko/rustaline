@@ -42,6 +42,71 @@ function mdImageIcon() {
   return svgIcon(MD_IMAGE_ICON);
 }
 
+/** 文本链接点击涟漪（宿主需 position:relative; clip-path:inset(0)，见 admin.css .rs-md-link） */
+function spawnRipple(anchor, e) {
+  const rect = anchor.getBoundingClientRect();
+  const d = Math.max(rect.width, rect.height) * 2;
+  // 去重 + 定时兜底：animationend 在后台标签页会暂停，不清理会永久残留堆积
+  const old = anchor.querySelector(".rs-ripple");
+  if (old) old.remove();
+  const dot = document.createElement("span");
+  dot.className = "rs-ripple";
+  dot.style.width = dot.style.height = `${d}px`;
+  dot.style.left = `${e.clientX - rect.left - d / 2}px`;
+  dot.style.top = `${e.clientY - rect.top - d / 2}px`;
+  anchor.appendChild(dot);
+  dot.addEventListener("animationend", () => dot.remove(), { once: true });
+  setTimeout(() => { if (dot.parentNode) dot.remove(); }, 900);
+}
+
+/**
+ * 外链离开确认模态框（mdui-dialog）：文本链接点击后不再直接跳转，先确认再新标签打开。
+ * 文案走 i18n（labels.linkConfirm*），url 已过 safeLinkUrl（仅 http/https）。
+ */
+function showLinkConfirmModal(url, labels) {
+  // 单例守卫：连发 click（长按松开等）不得叠出多个对话框
+  document.querySelectorAll("mdui-dialog.link-confirm").forEach((d) => d.remove());
+  const dialog = document.createElement("mdui-dialog");
+  dialog.className = "link-confirm";
+  dialog.closeOnEsc = true;
+  dialog.closeOnOverlayClick = true;
+  dialog.headline = (labels && labels.linkConfirmTitle) || "Open external link?";
+
+  const body = document.createElement("div");
+  body.className = "link-confirm__body";
+  const text = document.createElement("div");
+  text.className = "link-confirm__text";
+  text.textContent = (labels && labels.linkConfirmText) || "The external link will open in a new tab. Continue?";
+  const urlLine = document.createElement("div");
+  urlLine.className = "link-confirm__url";
+  urlLine.textContent = url;
+  body.appendChild(text);
+  body.appendChild(urlLine);
+
+  const cancel = document.createElement("mdui-button");
+  cancel.slot = "action";
+  cancel.variant = "text";
+  cancel.textContent = (labels && labels.linkConfirmCancel) || "Cancel";
+  cancel.addEventListener("click", () => { dialog.open = false; });
+
+  const proceed = document.createElement("mdui-button");
+  proceed.slot = "action";
+  proceed.variant = "filled";
+  proceed.textContent = (labels && labels.linkConfirmProceed) || "Continue";
+  proceed.addEventListener("click", () => {
+    const w = window.open(url, "_blank", "noopener");
+    if (w) w.opener = null;
+    dialog.open = false;
+  });
+
+  dialog.appendChild(body);
+  dialog.appendChild(cancel);
+  dialog.appendChild(proceed);
+  dialog.addEventListener("closed", () => dialog.remove(), { once: true });
+  document.body.appendChild(dialog);
+  requestAnimationFrame(() => { dialog.open = true; });
+}
+
 /**
  * 图片查看模态框（mdui-dialog）。安全：url 已过 safeLinkUrl（仅 http/https）；
  * img 上下文不执行脚本（含 SVG）；no-referrer 防泄露；alt / 错误文案一律 textContent。
@@ -131,6 +196,19 @@ export function renderMarkdown(text, labels, depth) {
           a.addEventListener("click", (e) => {
             e.preventDefault();
             showImageModal(safe, label, labels && labels.imageError, labels && labels.close);
+          });
+        } else {
+          // 文本链接：按下即涟漪，点击弹确认模态框，不直接跳转；禁掉原生拖拽 ghost
+          a.classList.add("rs-md-link");
+          a.addEventListener("pointerdown", (e) => {
+            spawnRipple(a, e);
+          });
+          a.addEventListener("click", (e) => {
+            e.preventDefault();
+            showLinkConfirmModal(safe, labels);
+          });
+          a.addEventListener("dragstart", (e) => {
+            e.preventDefault();
           });
         }
         a.appendChild(document.createTextNode(label));
