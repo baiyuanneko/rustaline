@@ -92,7 +92,16 @@ pub async fn submit_comment(
                 .take(comment_service::MAX_UA_LEN)
                 .collect::<String>()
         });
-    let comment =
-        comment_service::create_comment(&state.db, &state.config.comment, payload, ip, ua).await?;
+    let comment = comment_service::create_comment(
+        &state.db,
+        &state.redis,
+        &state.captcha_memory,
+        &state.captcha_signing_key,
+        &state.config.comment,
+        payload,
+        ip,
+        ua,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(comment)))
 }

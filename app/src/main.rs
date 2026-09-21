@@ -22,6 +22,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 1.5 JWT 密钥强度校验：弱默认值或过短直接启动失败（放在 load 之外，
     // 不影响手工构造配置的测试与 migration CLI）
     app::config::validate_jwt_secret(&config.jwt.secret).map_err(|e| e.to_string())?;
+    app::config::validate_captcha_config(&config.comment).map_err(|e| e.to_string())?;
 
     // 2. 初始化日志
     tracing_subscriber::fmt()
@@ -46,12 +47,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 5. 连接 Redis。黑名单启用时 Redis 是强依赖：连不上直接启动失败
     let redis = connect_redis(&config).await?;
 
+    let captcha_signing_key = Arc::new(app::services::captcha_service::signing_key(
+        &config.comment.captcha,
+        &config.jwt.secret,
+    ));
     let state = AppState {
         db,
         redis,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
         login_rate_limiter: RateLimiter::new(),
+        pow_issue_rate_limiter: RateLimiter::new(),
+        image_issue_rate_limiter: RateLimiter::new(),
+        captcha_memory: app::services::captcha_service::CaptchaMemoryStore::new(),
+        captcha_signing_key,
     };
 
     // 6. 构建路由并启动服务

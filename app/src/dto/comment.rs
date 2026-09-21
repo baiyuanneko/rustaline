@@ -15,6 +15,15 @@ pub struct CommentCreateRequest {
     // 客户端即使提交也会被 serde 忽略（M-4 加固）
     #[serde(default)]
     pub hp: Option<String>,
+    /// PoW 解：仅 comment.captcha.pow_enabled=true 时必填
+    #[serde(default)]
+    pub pow: Option<crate::dto::PowSolution>,
+    /// 图形验证码 id：仅 comment.captcha.image_enabled=true 时必填
+    #[serde(default)]
+    pub captcha_id: Option<String>,
+    /// 图形验证码用户输入
+    #[serde(default)]
+    pub captcha_code: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

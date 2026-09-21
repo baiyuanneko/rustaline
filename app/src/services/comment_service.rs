@@ -8,6 +8,8 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+use redis::aio::ConnectionManager;
+
 use crate::config::CommentConfig;
 use crate::dto::{
     AdminCommentListResponse, AdminCommentParent, AdminCommentResponse, AdminConfigResponse,
@@ -16,6 +18,8 @@ use crate::dto::{
 };
 use crate::entities::comments;
 use crate::error::AppError;
+
+use super::captcha_service::{self, CaptchaMemoryStore, PowSolutionInput};
 
 use super::ua;
 
@@ -226,8 +230,12 @@ pub async fn list_replies(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_comment(
     db: &DatabaseConnection,
+    redis: &Option<ConnectionManager>,
+    captcha_memory: &std::sync::Arc<CaptchaMemoryStore>,
+    captcha_signing_key: &[u8],
     config: &CommentConfig,
     payload: CommentCreateRequest,
     ip: String,
@@ -240,6 +248,29 @@ pub async fn create_comment(
     {
         return Ok(fake_response(&payload, &normalized_url, config));
     }
+
+    // 验证码校验（蜜罐之后、字段校验之前）：PoW 与图形码独立开关，同时开启为 AND
+    let pow = payload.pow.as_ref().map(|p| PowSolutionInput {
+        challenge: p.challenge.clone(),
+        nonce: p.nonce,
+    });
+    captcha_service::verify_pow(
+        redis,
+        captcha_memory,
+        captcha_signing_key,
+        &config.captcha,
+        pow.as_ref(),
+        &ip,
+    )
+    .await?;
+    captcha_service::verify_image(
+        redis,
+        captcha_memory,
+        &config.captcha,
+        payload.captcha_id.as_deref(),
+        payload.captcha_code.as_deref(),
+    )
+    .await?;
 
     if normalized_url.is_empty() {
         return Err(AppError::BadRequest("url must not be empty".into()));

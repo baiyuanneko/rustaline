@@ -51,6 +51,25 @@ avatar_cdn = "https://gravatar.loli.net/avatar/"
 # 供 SDK 在评论旁显示评论者浏览器/系统徽章。默认开启
 display_commenter_user_agent = true
 
+# 评论验证码：PoW 与图形码相互独立，两者都开启时为 AND（两道都要过）。默认都开启
+[captcha]
+# 基于 SHA-256 hashcash 的工作量证明开关；置 false 可退回旧行为（仅限流 + 蜜罐 + 审核）
+pow_enabled = true
+# PoW 难度：哈希十六进制前导零位数（期望 16^n 次哈希，4 = 约 6.5 万次，桌面无感）
+pow_difficulty = 4
+# challenge 有效期（秒）
+pow_ttl_secs = 600
+# 图形验证码开关；置 false 可关闭
+image_enabled = true
+# 图形验证码有效期（秒）
+image_ttl_secs = 300
+# 单个图形码最大错误尝试次数，达到即作废
+image_max_attempts = 3
+# PoW challenge 是否绑定签发时客户端 IP（防代理池共享预解；切换网络需重新获取）
+bind_ip = false
+# HMAC 签名密钥；留空则从 jwt.secret 域分离派生。需要独立设置时用 openssl rand -base64 48
+secret = ""
+
 # 管理员账号（唯一用户）没有默认值：APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD
 # （或嵌套写法 APP_INITIAL_ADMIN__USERNAME / APP_INITIAL_ADMIN__PASSWORD）
 # 仅在首次启动、admins 表为空时作为种子写入数据库；入库后被忽略（改密码走管理面板）

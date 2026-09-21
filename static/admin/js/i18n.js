@@ -95,7 +95,7 @@ const DICTS = {
     "color.teal": "青",
 
     // ---- 认证 ----
-    "auth.loginTitle": "管理面板登录",
+    "auth.loginTitle": "登录到 Rustaline 管理后台",
     "auth.username": "用户名",
     "auth.password": "密码",
     "auth.login": "登录",
@@ -383,7 +383,7 @@ const DICTS = {
     "color.teal": "Teal",
 
     // ---- auth ----
-    "auth.loginTitle": "Admin Sign In",
+    "auth.loginTitle": "Sign in to Rustaline Admin",
     "auth.username": "Username",
     "auth.password": "Password",
     "auth.login": "Sign in",

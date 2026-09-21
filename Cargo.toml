@@ -49,3 +49,10 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 md5 = "0.7"
+# 验证码：PoW HMAC 签名令牌 / SHA-256 校验（版本对齐既有 lockfile major，避免重复构建）
+sha2 = "0.10"
+hmac = "0.12"
+subtle = "2"
+base64 = "0.22"
+# 图形验证码 PNG 生成（纯 Rust，内置字体与 Noise/Wave 滤镜）
+captcha = "1.0"

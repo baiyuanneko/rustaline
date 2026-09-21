@@ -1,5 +1,5 @@
 import { login, setSession } from "../api.js";
-import { el } from "../components.js";
+import { el, icon } from "../components.js";
 import { t } from "../i18n.js";
 
 export async function render(container) {
@@ -11,13 +11,24 @@ function buildLoginScreen() {
   const card = el("mdui-card", { class: "login-card" });
   const body = el("div", { class: "login-card__body" });
 
-  const brand = el("div", { class: "login-brand" });
-  const mark = el("span", { class: "login-brand__mark", attrs: { "aria-hidden": "true" } });
-  mark.innerHTML = `<svg viewBox="0 0 32 32" width="20" height="20"><path d="M9 11h14M9 16h10M9 21h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-  brand.appendChild(mark);
-  brand.appendChild(el("div", { class: "login-brand__name", text: "rustaline" }));
-  body.appendChild(brand);
-  body.appendChild(el("div", { class: "login-title", text: t("auth.loginTitle") }));
+  // 标题行：项目图标 + 标题 + 圆形 i（初始账号说明放在 tooltip 内，不占卡片版面）
+  const head = el("div", { class: "login-head" });
+  head.appendChild(el("img", {
+    class: "login-head__mark",
+    src: "/icon.webp",
+    alt: "",
+    attrs: { "aria-hidden": "true" },
+  }));
+  head.appendChild(el("div", { class: "login-head__title", text: t("auth.loginTitle") }));
+
+  const hintText = t("auth.initialHint");
+  const infoTip = el("mdui-tooltip", { content: hintText, placement: "top" });
+  infoTip.appendChild(el("span", {
+    class: "login-head__info",
+    attrs: { tabindex: "0", role: "img", "aria-label": hintText },
+  }, icon("info")));
+  head.appendChild(infoTip);
+  body.appendChild(head);
 
   const form = el("form", { class: "login-form", onsubmit: (e) => e.preventDefault() });
   const usernameField = el("mdui-text-field", {
@@ -52,11 +63,6 @@ function buildLoginScreen() {
   form.appendChild(submitBtn);
   body.appendChild(form);
 
-  const hint = el("div", {
-    class: "login-hint",
-    text: t("auth.initialHint"),
-  });
-  body.appendChild(hint);
   card.appendChild(body);
   screen.appendChild(card);
 

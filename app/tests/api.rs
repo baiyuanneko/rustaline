@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use app::config::{
-    AppConfig, CommentConfig, DatabaseConfig, InitialAdminConfig, JwtConfig, LogConfig,
-    RedisConfig, ServerConfig, StaticConfig, SwaggerConfig,
+    AppConfig, CaptchaConfig, CommentConfig, DatabaseConfig, InitialAdminConfig, JwtConfig,
+    LogConfig, RedisConfig, ServerConfig, StaticConfig, SwaggerConfig,
 };
 use app::middleware::rate_limit::RateLimiter;
 use app::routes::create_router;
@@ -19,6 +19,19 @@ use migration::{Migrator, MigratorTrait};
 use sea_orm::{ConnectOptions, Database};
 use serde_json::{Value, json};
 use tower::ServiceExt;
+
+/// 旧行为评论配置：两种验证码都关闭（生产默认已改为开启，这些用例验证与
+/// 既有契约不变的行为：限流 + 蜜罐 + 审核）
+fn legacy_comment_config() -> CommentConfig {
+    CommentConfig {
+        captcha: CaptchaConfig {
+            pow_enabled: false,
+            image_enabled: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
 
 fn test_config(blacklist_enabled: bool) -> AppConfig {
     AppConfig {
@@ -45,7 +58,8 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
             introduction_index: true,
         },
         swagger: SwaggerConfig::default(),
-        comment: CommentConfig::default(),
+        // 面向旧行为的测试：显式关闭两种验证码（生产默认已改为开启）
+        comment: legacy_comment_config(),
         initial_admin: InitialAdminConfig {
             username: Some("admin".into()),
             password: Some("adminpass123".into()),
@@ -80,12 +94,20 @@ async fn build_app(redis_url: Option<String>, blacklist_enabled: bool) -> Router
         .await
         .expect("seed admin");
 
+    let captcha_signing_key = Arc::new(app::services::captcha_service::signing_key(
+        &config.comment.captcha,
+        &config.jwt.secret,
+    ));
     create_router(AppState {
         db,
         redis,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
         login_rate_limiter: RateLimiter::new(),
+        pow_issue_rate_limiter: RateLimiter::new(),
+        image_issue_rate_limiter: RateLimiter::new(),
+        captcha_memory: app::services::captcha_service::CaptchaMemoryStore::new(),
+        captcha_signing_key,
     })
 }
 
@@ -95,7 +117,18 @@ async fn build_app_with_comment(comment: CommentConfig) -> Router {
     build_app_with_config(config).await
 }
 
+/// 验证码用例专用：构建 app 同时返回其 AppState（需直接访问凭证存储取答案）
+async fn build_captcha_app(comment: CommentConfig) -> (Router, AppState) {
+    let mut config = test_config(false);
+    config.comment = comment;
+    build_app_state_with_config(config).await
+}
+
 async fn build_app_with_config(config: AppConfig) -> Router {
+    build_app_state_with_config(config).await.0
+}
+
+async fn build_app_state_with_config(config: AppConfig) -> (Router, AppState) {
     let mut opt = ConnectOptions::new("sqlite::memory:");
     opt.max_connections(1);
     let db = Database::connect(opt).await.expect("connect sqlite memory");
@@ -105,13 +138,22 @@ async fn build_app_with_config(config: AppConfig) -> Router {
         .await
         .expect("seed admin");
 
-    create_router(AppState {
+    let captcha_signing_key = Arc::new(app::services::captcha_service::signing_key(
+        &config.comment.captcha,
+        &config.jwt.secret,
+    ));
+    let state = AppState {
         db,
         redis: None,
         config: Arc::new(config),
         comment_rate_limiter: RateLimiter::new(),
         login_rate_limiter: RateLimiter::new(),
-    })
+        pow_issue_rate_limiter: RateLimiter::new(),
+        image_issue_rate_limiter: RateLimiter::new(),
+        captcha_memory: app::services::captcha_service::CaptchaMemoryStore::new(),
+        captcha_signing_key,
+    };
+    (create_router(state.clone()), state)
 }
 
 fn submit_comment_req(url: &str, comment: &str) -> Request<Body> {
@@ -529,7 +571,7 @@ async fn avatar_cdn_override_and_disable() {
     // 自定义 CDN（不带尾斜杠，验证归一化）：邮箱头像拼到自定义镜像
     let app = build_app_with_comment(CommentConfig {
         avatar_cdn: "https://avatar.example.com".into(),
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
     let (status, body) = call(
@@ -552,7 +594,7 @@ async fn avatar_cdn_override_and_disable() {
     // 置空：禁用邮箱头像层，avatar 为 null
     let app = build_app_with_comment(CommentConfig {
         avatar_cdn: String::new(),
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
     let (status, body) = call(
@@ -595,7 +637,7 @@ async fn comment_list_isolation_and_status() {
 
     let app = build_app_with_comment(CommentConfig {
         moderation: true,
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
     call(&app, submit_comment_req("/pending-test", "hidden")).await;
@@ -671,7 +713,7 @@ async fn comment_reply_tree() {
 async fn comment_moderation_flow() {
     let app = build_app_with_comment(CommentConfig {
         moderation: true,
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
 
@@ -1076,7 +1118,7 @@ async fn import_valine_data() {
 async fn comment_rate_limit() {
     let app = build_app_with_comment(CommentConfig {
         rate_limit_per_minute: 2,
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
 
@@ -1478,7 +1520,7 @@ async fn submit_with_ua(
 async fn ua_summary_hidden_when_disabled() {
     let app = build_app_with_comment(CommentConfig {
         display_commenter_user_agent: false,
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
 
@@ -1647,7 +1689,7 @@ async fn comment_threads_pagination() {
     // 放宽提交限流（本用例连发 14 条，默认 5/分钟会拦截）
     let app = build_app_with_comment(CommentConfig {
         rate_limit_per_minute: 1000,
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
 
@@ -1722,7 +1764,7 @@ async fn comment_threads_pagination() {
 async fn comment_thread_preview_and_expand() {
     let app = build_app_with_comment(CommentConfig {
         rate_limit_per_minute: 1000,
-        ..CommentConfig::default()
+        ..legacy_comment_config()
     })
     .await;
 
@@ -1831,4 +1873,401 @@ async fn comment_thread_preview_and_expand() {
         StatusCode::BAD_REQUEST,
         "rid 指向非顶层评论必须 400"
     );
+}
+
+// ---- 评论验证码（PoW / 图形码） ------------------------------------------
+
+use sha2::{Digest, Sha256};
+
+/// 构造开启指定验证码能力的 CommentConfig（其余字段走默认）
+fn captcha_comment_config(
+    pow: bool,
+    image: bool,
+    f: impl FnOnce(&mut app::config::CaptchaConfig),
+) -> CommentConfig {
+    let mut comment = CommentConfig::default();
+    comment.captcha.pow_enabled = pow;
+    comment.captcha.image_enabled = image;
+    f(&mut comment.captcha);
+    comment
+}
+
+/// 拉取 PoW challenge
+async fn fetch_pow_challenge(app: &Router) -> (String, u32) {
+    let (status, body) = call(app, json_request("GET", "/api/v1/captcha/pow", None, None)).await;
+    assert_eq!(status, StatusCode::OK, "challenge 签发应成功: {body}");
+    (
+        body["challenge"].as_str().unwrap().to_string(),
+        body["difficulty"].as_u64().unwrap() as u32,
+    )
+}
+
+/// 与 SDK 完全同构的求解：找使 SHA-256(challenge:nonce) 前 difficulty 位为 0 的 nonce
+fn solve_pow(challenge: &str, difficulty: u32) -> u64 {
+    for nonce in 0..u64::MAX {
+        let mut h = Sha256::new();
+        h.update(challenge.as_bytes());
+        h.update(b":");
+        h.update(nonce.to_string().as_bytes());
+        let hash: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        if hash.bytes().take(difficulty as usize).all(|c| c == b'0') {
+            return nonce;
+        }
+    }
+    panic!("no nonce");
+}
+
+fn pow_submit_req(url: &str, comment: &str, challenge: &str, nonce: u64) -> Request<Body> {
+    json_request(
+        "POST",
+        "/api/v1/comments",
+        Some(json!({
+            "url": url,
+            "comment": comment,
+            "pow": { "challenge": challenge, "nonce": nonce },
+        })),
+        None,
+    )
+}
+
+#[tokio::test]
+async fn captcha_config_endpoint_reflects_switches() {
+    let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/config", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["pow"]["enabled"], true);
+    assert_eq!(body["pow"]["difficulty"], 4);
+    assert_eq!(body["image"]["enabled"], false);
+}
+
+#[tokio::test]
+async fn captcha_enabled_by_default() {
+    // 默认 CommentConfig（不显式设置 captcha）：两种验证码都开启，缺解一律 400
+    let app = build_app_with_comment(CommentConfig::default()).await;
+
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/config", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["pow"]["enabled"], true, "PoW 默认应开启");
+    assert_eq!(body["image"]["enabled"], true, "图形码默认应开启");
+
+    let (status, _) = call(&app, submit_comment_req("/default-on", "x")).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "默认开启后缺验证码字段应 400"
+    );
+}
+
+#[tokio::test]
+async fn pow_disabled_keeps_legacy_behavior() {
+    // 两个开关都关闭：不带任何验证码字段也能发（生产默认已改为开启，这里验证关闭路径）
+    let app = build_app_with_comment(captcha_comment_config(false, false, |_| {})).await;
+    let (status, _) = call(&app, submit_comment_req("/pow-off", "hello")).await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn pow_enabled_requires_solution() {
+    let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
+    // 缺解
+    let (status, body) = call(&app, submit_comment_req("/pow-on", "x")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "缺 PoW 解应 400: {body}");
+    // 错解
+    let (challenge, _) = fetch_pow_challenge(&app).await;
+    let (status, _) = call(&app, pow_submit_req("/pow-on", "x", &challenge, 1)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "错误 nonce 应 400");
+    // 伪造 challenge（非服务端签名）
+    let (status, _) = call(
+        &app,
+        pow_submit_req("/pow-on", "x", "fake.challenge.value", 0),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "伪造令牌应 400");
+}
+
+#[tokio::test]
+async fn pow_valid_solution_accepted_and_replay_blocked() {
+    let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
+    let (challenge, difficulty) = fetch_pow_challenge(&app).await;
+    let nonce = solve_pow(&challenge, difficulty);
+
+    let (status, _) = call(&app, pow_submit_req("/pow-ok", "first", &challenge, nonce)).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // 重放同一个解必须 400
+    let (status, _) = call(&app, pow_submit_req("/pow-ok", "replay", &challenge, nonce)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "同一 challenge 重放应 400");
+}
+
+#[tokio::test]
+async fn pow_tampered_signature_rejected() {
+    let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
+    let (challenge, _) = fetch_pow_challenge(&app).await;
+    // 给签名段追加字符
+    let tampered = format!("{challenge}AA");
+    let nonce = solve_pow(&tampered, 4);
+    let (status, _) = call(&app, pow_submit_req("/pow-tamper", "x", &tampered, nonce)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "篡改签名应 400");
+}
+
+#[tokio::test]
+async fn pow_expired_challenge_rejected() {
+    // TTL 1 秒：签发后等待过期再求解提交
+    let app = build_app_with_comment(captcha_comment_config(true, false, |c| {
+        c.pow_ttl_secs = 1;
+    }))
+    .await;
+    let (challenge, difficulty) = fetch_pow_challenge(&app).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let nonce = solve_pow(&challenge, difficulty);
+    let (status, _) = call(&app, pow_submit_req("/pow-exp", "x", &challenge, nonce)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "过期 challenge 应 400");
+}
+
+#[tokio::test]
+async fn pow_issue_rate_limited() {
+    let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
+    // 上限 60/分钟：前 60 个成功，第 61 个 429
+    for i in 0..60 {
+        let (status, _) = call(&app, json_request("GET", "/api/v1/captcha/pow", None, None)).await;
+        assert_eq!(status, StatusCode::OK, "第 {i} 次签发应成功");
+    }
+    let (status, _) = call(&app, json_request("GET", "/api/v1/captcha/pow", None, None)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn image_captcha_validates_and_consumes() {
+    let (app, state) = build_captcha_app(captcha_comment_config(false, true, |_| {})).await;
+
+    // 缺字段 400
+    let (status, _) = call(&app, submit_comment_req("/img", "x")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 不存在的 id
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/img", "comment": "x",
+                "captcha_id": "nope", "captcha_code": "abcde",
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 拿一张图形码：答案需要从服务端侧验证，测试通过「两错后正确」路径不易拿到答案，
+    // 故直接对 service 层签发再提交
+    let (id, _png) = app::services::captcha_service::issue_image_captcha(
+        &state.redis,
+        &state.captcha_memory,
+        &state.config.comment.captcha,
+    )
+    .await
+    .expect("issue captcha");
+    let answer = {
+        let map = state.captcha_memory.image_store_for_test();
+        map.get(&id).expect("entry").0.clone()
+    };
+
+    // 错误答案一次
+    let wrong = if answer == "zzzzz" { "aaaaa" } else { "zzzzz" };
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/img", "comment": "x",
+                "captcha_id": id, "captcha_code": wrong,
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 正确答案（大小写不敏感）-> 201
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/img", "comment": "ok",
+                "captcha_id": id, "captcha_code": answer.to_uppercase(),
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // 复用 -> 400
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/img", "comment": "again",
+                "captcha_id": id, "captcha_code": answer,
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "图形码一次性消费");
+}
+
+#[tokio::test]
+async fn image_captcha_attempts_exhaust() {
+    let (app, state) = build_captcha_app(captcha_comment_config(false, true, |_| {})).await;
+    let (id, _png) = app::services::captcha_service::issue_image_captcha(
+        &state.redis,
+        &state.captcha_memory,
+        &state.config.comment.captcha,
+    )
+    .await
+    .unwrap();
+    let answer = {
+        let map = state.captcha_memory.image_store_for_test();
+        map.get(&id).unwrap().0.clone()
+    };
+    let wrong = if answer == "zzzzz" { "aaaaa" } else { "zzzzz" };
+    for _ in 0..3 {
+        let (status, _) = call(
+            &app,
+            json_request(
+                "POST",
+                "/api/v1/comments",
+                Some(json!({
+                    "url": "/img2", "comment": "x",
+                    "captcha_id": id, "captcha_code": wrong,
+                })),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    // 耗尽后正确答案也失败
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/img2", "comment": "x",
+                "captcha_id": id, "captcha_code": answer,
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn both_captchas_required_when_both_enabled() {
+    let (app, state) = build_captcha_app(captcha_comment_config(true, true, |_| {})).await;
+    let (challenge, difficulty) = fetch_pow_challenge(&app).await;
+    let nonce = solve_pow(&challenge, difficulty);
+    let (img_id, _png) = app::services::captcha_service::issue_image_captcha(
+        &state.redis,
+        &state.captcha_memory,
+        &state.config.comment.captcha,
+    )
+    .await
+    .unwrap();
+    let answer = {
+        let map = state.captcha_memory.image_store_for_test();
+        map.get(&img_id).unwrap().0.clone()
+    };
+
+    // 只带 PoW -> 400
+    let (status, _) = call(&app, pow_submit_req("/both", "x", &challenge, nonce)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 重取 PoW（上一个请求尚未消费：PoW 在图形码之前校验且图形码失败时 PoW 已被消费，
+    // 因此必须重新取一个），两者都带 -> 201
+    let (challenge, difficulty) = fetch_pow_challenge(&app).await;
+    let nonce = solve_pow(&challenge, difficulty);
+    let (status, _) = call(
+        &app,
+        json_request(
+            "POST",
+            "/api/v1/comments",
+            Some(json!({
+                "url": "/both", "comment": "ok",
+                "pow": { "challenge": challenge, "nonce": nonce },
+                "captcha_id": img_id, "captcha_code": answer,
+            })),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn captcha_pow_replay_blocked_via_redis() {
+    // Redis 路径的防重放校验（二进制缺失则跳过）
+    let Some(redis) = spawn_redis() else {
+        eprintln!("redis-server binary not found, skipping captcha redis test");
+        return;
+    };
+    // build_app_state_with_config 不带 redis；这里单独构造带 redis 的 state
+    let mut config = test_config(false);
+    config.redis.url = redis.url.clone();
+    let redis_mgr = Some(
+        redis::Client::open(redis.url.clone())
+            .expect("redis client")
+            .get_connection_manager()
+            .await
+            .expect("redis manager"),
+    );
+    let (_app, mut state) = build_app_state_with_config(config).await;
+    state.redis = redis_mgr;
+    let cfg = captcha_comment_config(true, false, |_| {});
+    let key = app::services::captcha_service::signing_key(&cfg.captcha, &state.config.jwt.secret);
+    let challenge =
+        app::services::captcha_service::issue_pow_challenge(&key, &cfg.captcha, "0.0.0.0");
+    let nonce = solve_pow(&challenge, 4);
+    let sol = app::services::captcha_service::PowSolutionInput {
+        challenge: challenge.clone(),
+        nonce,
+    };
+    app::services::captcha_service::verify_pow(
+        &state.redis,
+        &state.captcha_memory,
+        &key,
+        &cfg.captcha,
+        Some(&sol),
+        "0.0.0.0",
+    )
+    .await
+    .expect("first use");
+    let err = app::services::captcha_service::verify_pow(
+        &state.redis,
+        &state.captcha_memory,
+        &key,
+        &cfg.captcha,
+        Some(&sol),
+        "0.0.0.0",
+    )
+    .await;
+    assert!(err.is_err(), "Redis 路径重放必须失败");
 }

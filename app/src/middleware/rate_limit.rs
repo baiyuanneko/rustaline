@@ -67,6 +67,43 @@ pub async fn rate_limit_middleware(
 /// 与评论限流各自独立计数；凭据对错都计数（中间件在认证逻辑之前拦截）。
 const LOGIN_MAX_PER_MINUTE: u32 = 5;
 
+/// 验证码签发接口限流上限：固定 60 次/分钟/IP。
+/// 图形码生成有 CPU 成本、PoW 签发接口需防批量囤积，故各自独立限流。
+const CAPTCHA_ISSUE_MAX_PER_MINUTE: u32 = 60;
+
+/// PoW challenge 签发限流 middleware，仅挂在 GET /api/v1/captcha/pow 上。
+pub async fn pow_issue_rate_limit_middleware(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    run_issue_limit(&state.pow_issue_rate_limiter, request, next).await
+}
+
+/// 图形验证码签发限流 middleware，仅挂在 GET /api/v1/captcha/image 上。
+pub async fn image_issue_rate_limit_middleware(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    run_issue_limit(&state.image_issue_rate_limiter, request, next).await
+}
+
+async fn run_issue_limit(
+    limiter: &RateLimiter,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    let ip = extract_client_ip(request.headers(), request.extensions())
+        .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
+    if !limiter.check(ip, CAPTCHA_ISSUE_MAX_PER_MINUTE) {
+        return Err(AppError::TooManyRequests(
+            "captcha issue rate limit exceeded, try again later".into(),
+        ));
+    }
+    Ok(next.run(request).await)
+}
+
 /// 登录限流 middleware，仅挂在 POST /api/v1/auth/login 上。
 pub async fn login_rate_limit_middleware(
     State(state): State<AppState>,

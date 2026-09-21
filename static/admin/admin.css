@@ -584,10 +584,11 @@ mdui-badge[hidden] {
 /* ---- 登录页 ---- */
 .login-screen {
   display: flex;
-  align-items: center;
+  /* 卡片贴上部区域（不再垂直居中），顶部留白随视口高度伸缩；
+     不设 min-height：主区域本身可滚动，撑高只会白多出一截滚动条 */
+  align-items: flex-start;
   justify-content: center;
-  min-height: calc(100vh - 64px);
-  padding: 24px 16px;
+  padding: clamp(32px, 8vh, 96px) 16px 32px;
 }
 
 .login-card {
@@ -599,33 +600,45 @@ mdui-badge[hidden] {
   padding: 24px;
 }
 
-.login-brand {
+.login-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
 }
 
-.login-brand__mark {
-  display: inline-flex;
+.login-head__mark {
+  flex: 0 0 auto;
+  display: block;
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  align-items: center;
-  justify-content: center;
-  color: rgb(var(--mdui-color-on-primary));
-  background: rgb(var(--mdui-color-primary));
+  object-fit: cover;
 }
 
-.login-brand__name {
-  font-size: 20px;
+.login-head__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1.35;
   color: rgb(var(--mdui-color-on-surface));
 }
 
-.login-title {
-  font-size: 14px;
+/* 标题右侧的圆形 i：初始账号说明文案挂在它的 tooltip 上 */
+.login-head__info {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
   color: rgb(var(--mdui-color-on-surface-variant));
+  cursor: help;
+  outline-offset: 2px;
+}
+
+.login-head__info:hover,
+.login-head__info:focus-visible {
+  color: rgb(var(--mdui-color-primary));
 }
 
 .login-form {
@@ -641,13 +654,6 @@ mdui-badge[hidden] {
   font-size: 13px;
   color: rgb(var(--mdui-color-on-error-container));
   background: rgb(var(--mdui-color-error-container));
-}
-
-.login-hint {
-  margin-top: 16px;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 /* 设置页：修改密码表单（位于模态框内） */

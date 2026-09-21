@@ -101,6 +101,70 @@ pub struct CommentConfig {
     /// 默认开启；原始 ua 仍只在管理接口出现，关闭该开关即恢复不下发
     #[serde(default = "default_true")]
     pub display_commenter_user_agent: bool,
+    /// 评论验证码（PoW / 图形验证码），两套机制独立开关
+    #[serde(default)]
+    pub captcha: CaptchaConfig,
+}
+
+/// 评论验证码配置：PoW 与图形码完全独立，均开启时为 AND（两道都要过）。
+/// 评论验证码配置：PoW 与图形码完全独立，同时开启时为 AND（两道都要过）。
+/// 默认两种验证码均开启（防滥用优先），可用环境变量显式关闭。
+#[derive(Debug, Clone, Deserialize)]
+pub struct CaptchaConfig {
+    /// 是否启用基于 SHA-256 hashcash 的工作量证明
+    #[serde(default = "default_true")]
+    pub pow_enabled: bool,
+    /// PoW 难度：SHA-256 结果十六进制前导零位数（期望计算 16^n 次）
+    #[serde(default = "default_pow_difficulty")]
+    pub pow_difficulty: u32,
+    /// PoW challenge 有效期（秒）
+    #[serde(default = "default_pow_ttl_secs")]
+    pub pow_ttl_secs: u64,
+    /// 是否启用图形验证码
+    #[serde(default = "default_true")]
+    pub image_enabled: bool,
+    /// 图形验证码有效期（秒）
+    #[serde(default = "default_image_ttl_secs")]
+    pub image_ttl_secs: u64,
+    /// 单个图形码最多错误尝试次数，达到即作废
+    #[serde(default = "default_image_max_attempts")]
+    pub image_max_attempts: u32,
+    /// PoW challenge 是否绑定签发时的客户端 IP（防代理池共享预解）
+    #[serde(default)]
+    pub bind_ip: bool,
+    /// HMAC 签名密钥；留空则从 jwt.secret 域分离派生
+    #[serde(default)]
+    pub secret: String,
+}
+
+fn default_pow_difficulty() -> u32 {
+    4
+}
+fn default_pow_ttl_secs() -> u64 {
+    600
+}
+fn default_image_ttl_secs() -> u64 {
+    300
+}
+fn default_image_max_attempts() -> u32 {
+    3
+}
+
+impl Default for CaptchaConfig {
+    fn default() -> Self {
+        Self {
+            // 默认两种验证码都开启（防滥用优先）；需要旧行为时用
+            // APP_COMMENT_POW_ENABLED=false / APP_COMMENT_CAPTCHA_IMAGE_ENABLED=false 关闭
+            pow_enabled: true,
+            pow_difficulty: default_pow_difficulty(),
+            pow_ttl_secs: default_pow_ttl_secs(),
+            image_enabled: true,
+            image_ttl_secs: default_image_ttl_secs(),
+            image_max_attempts: default_image_max_attempts(),
+            bind_ip: false,
+            secret: String::new(),
+        }
+    }
 }
 
 fn default_avatar_cdn() -> String {
@@ -126,6 +190,7 @@ impl Default for CommentConfig {
             default_nick: default_nick(),
             avatar_cdn: default_avatar_cdn(),
             display_commenter_user_agent: true,
+            captcha: CaptchaConfig::default(),
         }
     }
 }
@@ -155,6 +220,27 @@ pub fn validate_jwt_secret(secret: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 校验验证码配置的合理取值范围。仅在 main.rs 启动路径调用。
+pub fn validate_captcha_config(comment: &CommentConfig) -> Result<(), String> {
+    let c = &comment.captcha;
+    if !(1..=8).contains(&c.pow_difficulty) {
+        return Err(format!(
+            "comment.captcha.pow_difficulty 超出范围（{}，要求 1..=8）",
+            c.pow_difficulty
+        ));
+    }
+    if c.pow_enabled && c.pow_ttl_secs == 0 {
+        return Err("comment.captcha.pow_ttl_secs 不能为 0".into());
+    }
+    if c.image_enabled && c.image_ttl_secs == 0 {
+        return Err("comment.captcha.image_ttl_secs 不能为 0".into());
+    }
+    if c.image_enabled && c.image_max_attempts == 0 {
+        return Err("comment.captcha.image_max_attempts 不能为 0".into());
+    }
+    Ok(())
+}
+
 /// 单层环境变量简写 -> 嵌套配置键
 const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_SERVER_HOST", "server.host"),
@@ -180,6 +266,26 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
         "APP_DISPLAY_COMMENTER_USER_AGENT",
         "comment.display_commenter_user_agent",
     ),
+    ("APP_COMMENT_POW_ENABLED", "comment.captcha.pow_enabled"),
+    (
+        "APP_COMMENT_POW_DIFFICULTY",
+        "comment.captcha.pow_difficulty",
+    ),
+    ("APP_COMMENT_POW_TTL_SECS", "comment.captcha.pow_ttl_secs"),
+    (
+        "APP_COMMENT_CAPTCHA_IMAGE_ENABLED",
+        "comment.captcha.image_enabled",
+    ),
+    (
+        "APP_COMMENT_CAPTCHA_IMAGE_TTL_SECS",
+        "comment.captcha.image_ttl_secs",
+    ),
+    (
+        "APP_COMMENT_CAPTCHA_IMAGE_MAX_ATTEMPTS",
+        "comment.captcha.image_max_attempts",
+    ),
+    ("APP_COMMENT_CAPTCHA_BIND_IP", "comment.captcha.bind_ip"),
+    ("APP_COMMENT_CAPTCHA_SECRET", "comment.captcha.secret"),
     ("APP_INITIAL_ADMIN_USERNAME", "initial_admin.username"),
     ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
 ];

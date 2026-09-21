@@ -27,15 +27,15 @@ bynrust26/
     │   ├── main.rs       # 启动流程与优雅退出（into_make_service_with_connect_info 注入客户端 IP）
     │   ├── lib.rs        # 模块声明（集成测试依赖 lib target）
     │   ├── config.rs     # 分层配置加载（default.toml < local.toml < APP_* env）
-    │   ├── state.rs      # AppState（db / redis / config / comment_rate_limiter / login_rate_limiter / admin）
+    │   ├── state.rs      # AppState（db / redis / config / 各 RateLimiter / captcha_memory / captcha_signing_key / admin）
     │   ├── error.rs      # AppError -> 统一 JSON { code, message }
     │   ├── openapi.rs    # utoipa 聚合 + Swagger UI
-    │   ├── routes/       # 路由装配（公共 /api/v1/comments、认证 /api/v1/admin/*）
-    │   ├── handlers/     # 薄层：解析请求 -> 调 service -> 响应；带 utoipa::path 注解
-    │   ├── services/     # 领域逻辑（comment_service / import_service）
+    │   ├── routes/       # 路由装配（公共 /api/v1/comments、/api/v1/captcha/*、认证 /api/v1/admin/*）
+    │   ├── handlers/     # 薄层：解析请求 -> 调 service -> 响应；带 utoipa::path 注解（captcha.rs = 验证码三个 GET）
+    │   ├── services/     # 领域逻辑（comment_service / captcha_service / import_service）
     │   ├── dto/          # 请求/响应模型（derive utoipa ToSchema）
     │   ├── auth/         # jwt 签发/校验、Redis 黑名单、AuthUser extractor、admin.rs 管理员账号（种子/登录/改密）
-    │   ├── middleware/   # rate_limit：IP 滑动窗口限流（评论提交 + 登录各一实例）+ ClientIp extractor
+    │   ├── middleware/   # rate_limit：IP 滑动窗口限流（评论提交 + 登录 + PoW/图形码签发各一实例）+ ClientIp extractor
     │   └── entities/     # sea-orm 实体（comments / admins）
     └── tests/api.rs      # 端到端集成测试（内存 SQLite + 临时 redis-server）
 ```
@@ -46,7 +46,9 @@ Valine 自托管替代品。comments 表完整兼容 Valine 字段（id 即 obje
 
 公共列表为**楼中楼分页契约**：`GET /api/v1/comments?url=&page=` 按 root（pid IS NULL）倒序分页（默认 10、上限 20/页），返回 `{ count, root_total, page, page_size, roots }`，每楼带 `reply_count` 与最早 5 条 `replies` 预览；`count` = 该 url 全部 approved 数（含回复）。楼内展开走 `GET /api/v1/comments/replies?url=&rid=&offset=&limit=`（时间升序，limit ≤50，rid 须指向同 url 顶层评论否则 400）。SDK 侧：超过 3 层的嵌套折叠为「继续查看这段对话」占位条（就地展开零请求），预览不全的楼尾部出「查看全部 N 条回复」（调 replies 接口拉全量）。
 
-提交走白名单：只收 `url/comment/nick/mail/link/pid/rid/hp`，其余字段（含 qq_avatar）serde 忽略；rid 由服务端按父评论推导，客户端显式 rid 与推导值不一致 → 400；顶层提交的 rid 一律丢弃。各字段长度与建表迁移 varchar 对齐（常量集中在 `comment_service.rs` 顶部，改动需两边同步）；UA 服务端截断 512 字符。登录接口固定 5 次/分钟/IP 限流（`login_rate_limit_middleware`，与评论限流独立）。
+提交走白名单：只收 `url/comment/nick/mail/link/pid/rid/hp` 及验证码字段 `pow/captcha_id/captcha_code`，其余字段（含 qq_avatar）serde 忽略；rid 由服务端按父评论推导，客户端显式 rid 与推导值不一致 → 400；顶层提交的 rid 一律丢弃。各字段长度与建表迁移 varchar 对齐（常量集中在 `comment_service.rs` 顶部，改动需两边同步）；UA 服务端截断 512 字符。登录接口固定 5 次/分钟/IP 限流（`login_rate_limit_middleware`，与评论限流独立）。
+
+评论验证码（`services/captcha_service.rs`，配置在 `[comment.captcha]`，**默认两种都开启**（`APP_COMMENT_POW_ENABLED=false` / `APP_COMMENT_CAPTCHA_IMAGE_ENABLED=false` 可分别关掉））：PoW 与图形码是两套相互独立的开关（env `APP_COMMENT_POW_*` / `APP_COMMENT_CAPTCHA_IMAGE_*`），同开为 AND；校验顺序固定为蜜罐 → PoW → 图形码 → 字段校验 → 落库。PoW = SHA-256 hashcash（`SHA-256(challenge:nonce)` 十六进制前 N 位为 0），challenge 是 **HMAC 签名令牌**（密钥取 `captcha.secret`，留空由 jwt.secret 以 HMAC 标签 `rustaline-captcha-v1` 域分离派生），载荷含 `v/rnd/iat/exp/ip?`，签发无状态、提交时先验签+过期+可选 IP 绑定，再算一次哈希验前导零，最后 Redis `SET captcha:pow:<rnd> 1 NX EX` 原子消费防重放；图形码用 `captcha` crate 在 `spawn_blocking` 中生成 4 位字符 PNG（`generate_image()` 里的 4 字符 / view(168,64) / 单向 Wave / 轻噪声 是可读性优先的参数组合，改动会同步影响识别率，单测已锁死尺寸与位数），答案仅存服务端（`captcha:img:<id>` = `answer:剩余次数`，小写比对、`subtle` 常量时间比较、错 N 次作废、成功即删）。两类凭证都 Redis 优先、进程内内存表（`CaptchaMemoryStore`，带 TTL 清理与容量上限）兜底；多副本必须配 Redis。公共接口 `GET /api/v1/captcha/{config,pow,image}` 匿名开放，pow/image 签发各自限流 60 次/分钟/IP。SDK 侧 PoW 优先 `crypto.subtle`（仅安全上下文可用，明文 HTTP 下不存在），回退到**内联的 js-sha256 v1.0.0（MIT，版权头保留在 rustaline.js 内）**纯 JS 实现，循环每 256 次让出事件循环；PoW 在乐观插入之前计算；图形码改为**模态框收集**（`_openCaptchaModal`，挂在 document.body 并把 `.rs-root` 解析出的 `--rs-*` 令牌拷贝到遮罩上以跟随主题；`_render` 会清空 root 故不能挂 root）：点提交先弹框、确认后才走 PoW 与提交，取消则保留草稿；服务端判错时重弹模态框并换新图；图形码在弹框时才按需拉取（不在 SDK 初始化时预拉）。改 PoW 拼接格式/前导零规则时，必须前后端与测试三处同步。
 
 JWT 密钥启动时强制校验（`config.rs::validate_jwt_secret`，在 main.rs 调用）：拒绝已知弱默认值、要求 ≥32 字节，不满足即启动失败；`docker-compose.yml` 用 `${APP_JWT_SECRET:?}` 缺失报错（dev compose 保留仅本地的 ≥32 字节默认值）。
 

@@ -76,9 +76,21 @@ SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回�
 | --- | --- | --- |
 | GET | `/api/v1/comments?url=<文章URL>&page=N&page_size=M` | 按楼分页：`{ count, root_total, page, page_size, roots }`；root（顶层评论）倒序分页（默认 10、上限 20/页），每楼带 `reply_count` 与最早 5 条 `replies` 预览；`count` 为该 url 可见评论总数（含全部回复） |
 | GET | `/api/v1/comments/replies?url=<文章URL>&rid=<楼rootId>&offset=&limit=` | 楼内回复展开：`{ total, results }`，时间升序（limit 上限 50）；rid 须指向同 url 的顶层评论，否则 400 |
-| POST | `/api/v1/comments` | 提交评论 `{ url, comment, nick?, mail?, link?, pid?, rid? }`；白名单之外字段（如 qq_avatar）一律忽略，rid 由服务端按父评论推导（伪造或不一致 400）；ip/ua 服务端采集（UA 截断 512 字符），字段长度对齐列宽，限流 429 |
+| POST | `/api/v1/comments` | 提交评论 `{ url, comment, nick?, mail?, link?, pid?, rid?, pow?, captcha_id?, captcha_code? }`；白名单之外字段（如 qq_avatar）一律忽略，rid 由服务端按父评论推导（伪造或不一致 400）；ip/ua 服务端采集（UA 截断 512 字符），字段长度对齐列宽，限流 429；开启验证码时 `pow`/图形码字段缺失或无效返回 400 |
+| GET | `/api/v1/captcha/config` | 验证码开关探测：`{ pow: { enabled, difficulty }, image: { enabled } }`（SDK 初始化时拉取，无需认证） |
+| GET | `/api/v1/captcha/pow` | 签发 PoW 签名 challenge：`{ challenge, difficulty, ttl }`（限流 60 次/分钟/IP） |
+| GET | `/api/v1/captcha/image` | 签发图形验证码：`{ captcha_id, image: <PNG data URI>, ttl }`（限流 60 次/分钟/IP） |
 
 公共响应的 Comment 字段为 `{ id, comment, nick, link, avatar, url, pid, rid, inserted_at, ua_summary }`；`ua_summary` 是服务端解析的评论者环境摘要（如 `"Chrome 126 · Windows"`，SDK 显示为评论旁徽章），仅当 `APP_DISPLAY_COMMENTER_USER_AGENT=true` 时下发，否则恒为 `null`；原始 ua/ip/mail 绝不出现在公共响应。
+
+### 评论验证码（PoW / 图形验证码）
+
+在「IP 限流 + 蜜罐 + 审核」之外提供两层可独立开关的反机器人机制，**默认两种都开启**（防滥用优先，可用环境变量显式关闭）；两者同时开启时为 AND（两道都要过）：
+
+- **PoW（工作量证明，SHA-256 hashcash）**：SDK 提交前在浏览器后台静默求解 `SHA-256(challenge:nonce)` 前 N 个十六进制位为 0（默认难度 4，期望约 6.5 万次哈希，桌面无感、手机约 1 秒）。服务端只做一次哈希即可验证（µs 级），非对称地抬高批量机器人成本。challenge 是 **HMAC 签名的一次性令牌**：防伪造、防过期囤货（默认 10 分钟 TTL），提交时以 Redis `SET NX EX` 原子消费防重放；HTTPS 页面用浏览器原生 Web Crypto 计算，明文 HTTP 等非安全上下文自动回退到 SDK 内联的纯 JS SHA-256 实现（js-sha256，MIT）。
+- **图形验证码**：服务端用 `captcha` crate 生成 4 位去歧义字符 PNG（答案只存服务端）；用户点「发表评论」时 SDK **弹出模态框**收集输入（图片 + 输入框 + 换一张 + 确定/取消，Esc 或点遮罩取消，Enter 确认，打开期间锁页面滚动，主题跟随实例配色与明暗），图形码在点击提交时才按需拉取（不预加载，节省签发次数）。参数按可读性优先——紧裁切 168×64（字符占成品高度 44%）、仅横向低幅 Wave、轻噪声。默认 5 分钟 TTL、单码最多错 3 次、验证成功立即消费，大小写不敏感；服务端判错时自动重弹模态框并换新图。
+- 两种凭证优先存 Redis（键前缀 `captcha:pow:` / `captcha:img:`），Redis 不可达时降级为进程内内存存储。**多副本部署必须提供 Redis**，否则防重放不跨实例共享（与 IP 限流同为单进程语义）。
+- 防护定位：PoW 能淘汰「一段脚本直接 POST」的廉价机器人并逼迫代理池成本，但不抗 GPU 农场 / 僵尸网络 / 真人水军；图形码可挡住低成本脚本但可被打码平台绕过。最终防线仍是审核（`APP_COMMENT_MODERATION=true`）。
 
 ### 管理接口（需管理员 JWT）
 
@@ -112,6 +124,14 @@ LeanCloud 控制台导出 Comment 表 JSON 后，在管理面板「导入」页�
 | `APP_COMMENT_DEFAULT_NICK` | `APP_COMMENT__DEFAULT_NICK` | 未填昵称时的默认昵称 | `Anonymous` |
 | `APP_AVATAR_CDN` | `APP_COMMENT__AVATAR_CDN` | 邮箱头像 CDN（gravatar 协议镜像）；置空 = 禁用邮箱头像层 | `https://gravatar.loli.net/avatar/` |
 | `APP_DISPLAY_COMMENTER_USER_AGENT` | `APP_COMMENT__DISPLAY_COMMENTER_USER_AGENT` | 是否在公共评论响应中下发 UA 解析摘要（`ua_summary`，如 "Chrome 126 · Windows"），SDK 据此显示评论者浏览器/系统徽章 | `true` |
+| `APP_COMMENT_POW_ENABLED` | `APP_COMMENT__CAPTCHA__POW_ENABLED` | 是否启用 PoW 工作量证明验证码；关闭后回到旧行为（仅限流 + 蜜罐 + 审核） | `true` |
+| `APP_COMMENT_POW_DIFFICULTY` | `APP_COMMENT__CAPTCHA__POW_DIFFICULTY` | PoW 难度：哈希十六进制前导零位数（合法范围 1..=8，4 ≈ 6.5 万次、5 ≈ 100 万次） | `4` |
+| `APP_COMMENT_POW_TTL_SECS` | `APP_COMMENT__CAPTCHA__POW_TTL_SECS` | PoW challenge 有效期（秒） | `600` |
+| `APP_COMMENT_CAPTCHA_IMAGE_ENABLED` | `APP_COMMENT__CAPTCHA__IMAGE_ENABLED` | 是否启用图形验证码 | `true` |
+| `APP_COMMENT_CAPTCHA_IMAGE_TTL_SECS` | `APP_COMMENT__CAPTCHA__IMAGE_TTL_SECS` | 图形验证码有效期（秒） | `300` |
+| `APP_COMMENT_CAPTCHA_IMAGE_MAX_ATTEMPTS` | `APP_COMMENT__CAPTCHA__IMAGE_MAX_ATTEMPTS` | 单个图形码最大错误尝试次数，达到即作废 | `3` |
+| `APP_COMMENT_CAPTCHA_BIND_IP` | `APP_COMMENT__CAPTCHA__BIND_IP` | PoW challenge 是否绑定签发时客户端 IP（防代理池共享预解；切换网络需重新获取） | `false` |
+| `APP_COMMENT_CAPTCHA_SECRET` | `APP_COMMENT__CAPTCHA__SECRET` | challenge HMAC 签名密钥；留空则由 `APP_JWT_SECRET` 域分离派生。需要独立设置时用 `openssl rand -base64 48` | 空（派生） |
 
 注意：时间字段为 UTC 朴素时间（无时区后缀），前端展示时已按 UTC 解析转本地；跨域部署 SDK 时保持默认放开 CORS 或按需收紧（`routes/mod.rs` 的 CorsLayer）。
 

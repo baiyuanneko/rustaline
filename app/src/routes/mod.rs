@@ -8,7 +8,10 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeader;
 use tower_http::trace::TraceLayer;
 
-use crate::middleware::rate_limit::{login_rate_limit_middleware, rate_limit_middleware};
+use crate::middleware::rate_limit::{
+    image_issue_rate_limit_middleware, login_rate_limit_middleware,
+    pow_issue_rate_limit_middleware, rate_limit_middleware,
+};
 use crate::state::AppState;
 use crate::{handlers, openapi};
 
@@ -65,6 +68,26 @@ fn api_v1(state: AppState) -> Router<AppState> {
         .route("/auth/logout", post(handlers::auth::logout))
         .route("/comments", get(handlers::comment::list_comments))
         .route("/comments/replies", get(handlers::comment::list_replies))
+        .route(
+            "/captcha/config",
+            get(handlers::captcha::get_captcha_config),
+        )
+        .merge(
+            Router::new()
+                .route("/captcha/pow", get(handlers::captcha::get_pow_challenge))
+                .layer(from_fn_with_state(
+                    state.clone(),
+                    pow_issue_rate_limit_middleware,
+                )),
+        )
+        .merge(
+            Router::new()
+                .route("/captcha/image", get(handlers::captcha::get_image_captcha))
+                .layer(from_fn_with_state(
+                    state.clone(),
+                    image_issue_rate_limit_middleware,
+                )),
+        )
         .merge(
             Router::new()
                 .route("/comments", post(handlers::comment::submit_comment))

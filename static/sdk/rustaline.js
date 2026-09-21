@@ -78,6 +78,16 @@
       errNetwork: '网络错误，请稍后再试',
       errRate: '操作太频繁，请稍后再试',
       errGeneric: '发表失败，请稍后再试',
+      powComputing: '安全校验计算中…',
+      captchaPlaceholder: '图形验证码',
+      captchaRefresh: '换一张',
+      captchaLoading: '验证码加载中…',
+      captchaLoadError: '验证码加载失败，点击重试',
+      captchaTitle: '图形验证码',
+      captchaHint: '请输入图片中的字符（不区分大小写）',
+      captchaConfirm: '确定',
+      errPow: '安全校验失败，请重试',
+      errCaptcha: '图形验证码错误或已过期，请重新输入',
       timeJustNow: '刚刚',
       timeMinutesAgo: function (n) { return n + ' 分钟前'; },
       timeHoursAgo: function (n) { return n + ' 小时前'; },
@@ -121,6 +131,16 @@
       errNetwork: 'Network error, please try again later',
       errRate: 'Too many requests, please try again later',
       errGeneric: 'Failed to post, please try again later',
+      powComputing: 'Running security check…',
+      captchaPlaceholder: 'Characters in the image',
+      captchaRefresh: 'Refresh',
+      captchaLoading: 'Loading captcha…',
+      captchaLoadError: 'Failed to load captcha, click to retry',
+      captchaTitle: 'Captcha',
+      captchaHint: 'Enter the characters in the image (not case-sensitive)',
+      captchaConfirm: 'Confirm',
+      errPow: 'Security check failed, please try again',
+      errCaptcha: 'Captcha is incorrect or expired, please try again',
       timeJustNow: 'just now',
       timeMinutesAgo: function (n) { return n === 1 ? '1 minute ago' : n + ' minutes ago'; },
       timeHoursAgo: function (n) { return n === 1 ? '1 hour ago' : n + ' hours ago'; },
@@ -494,6 +514,99 @@
   tabindex: -1 !important;
   aria-hidden: true !important;
 }
+
+/* ---- 图形验证码模态框（挂 document.body，主题变量由 JS 从 .rs-root 拷贝） ---- */
+.rs-captcha-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+}
+.rs-captcha-dialog {
+  width: 300px;
+  max-width: 100%;
+  background: var(--rs-surface-container-lowest, #fff);
+  color: var(--rs-on-surface, #1a1c1e);
+  border-radius: var(--rs-radius-md, 16px);
+  box-shadow: var(--rs-elevation-3, 0 8px 24px rgba(0, 0, 0, 0.22));
+  padding: 22px 22px 18px;
+  animation: rs-captcha-pop 0.16s ease-out;
+}
+@keyframes rs-captcha-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+.rs-captcha-dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: var(--rs-on-surface, #1a1c1e);
+}
+.rs-captcha-dialog__hint {
+  font-size: 12px;
+  color: var(--rs-on-surface-variant, #42474e);
+  margin: 0 0 14px;
+}
+.rs-captcha-dialog__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 168 / 64;
+  border-radius: var(--rs-radius-xs, 8px);
+  border: 1px solid var(--rs-outline, #74777f);
+  background: var(--rs-surface-container-lowest, #fff);
+  cursor: pointer;
+}
+.rs-captcha-dialog__img--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--rs-on-surface-variant, #42474e);
+  cursor: pointer;
+  user-select: none;
+  padding: 0 8px;
+  text-align: center;
+}
+.rs-captcha-dialog__imgrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rs-captcha-dialog__input {
+  width: 100%;
+  font: inherit;
+  color: var(--rs-on-surface, #1a1c1e);
+  background: var(--rs-surface-container-lowest, #fff);
+  border: 1px solid var(--rs-outline, #74777f);
+  border-radius: var(--rs-radius-xs, 8px);
+  padding: 10px 12px;
+  outline: none;
+  box-sizing: border-box;
+  letter-spacing: 1px;
+}
+.rs-captcha-dialog__input:focus {
+  border-color: var(--rs-primary, #0b76cb);
+  box-shadow: 0 0 0 1px var(--rs-primary, #0b76cb);
+}
+.rs-captcha-dialog__error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--rs-error, #ba1a1a);
+  min-height: 16px;
+}
+.rs-captcha-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.rs-captcha-dialog__actions .rs-btn { height: 36px; padding: 0 16px; font-size: 13px; }
 
 /* ---- 评论列表 ---- */
 .rs-list { list-style: none; margin: 0; padding: 0; }
@@ -1261,6 +1374,28 @@
     }
   }
 
+  // ===== 纯 JS SHA-256 兜底实现 ==============================================
+  // 当 crypto.subtle 不可用（明文 HTTP 部署等非安全上下文）时使用。
+  // 内嵌 js-sha256 v1.0.0（MIT License, Copyright (c) 2014-2026 Chen, Yi-Cyuan,
+  // https://github.com/emn178/js-sha256），在隔离函数作用域内执行，不向全局挂任何变量。
+  // 该库是经过广泛验证的 SHA-256 实现；此处只取 sha256(字符串)->十六进制摘要 一个能力。
+  var fallbackSha256Hex = (function () {
+    var mod = { exports: {} };
+    (function (module) {
+      /**
+       * [js-sha256]{@link https://github.com/emn178/js-sha256}
+       *
+       * @version 1.0.0
+       * @author Chen, Yi-Cyuan [emn178@gmail.com]
+       * @copyright Chen, Yi-Cyuan 2014-2026
+       * @license MIT
+       */
+      !function(t,h){"object"==typeof exports&&"undefined"!=typeof module?module.exports=h():"function"==typeof define&&define.amd?define(h):(t="undefined"!=typeof globalThis?globalThis:t||self).sha256=h()}(this,function(){"use strict";var t="undefined"!=typeof ArrayBuffer,h=function(h){if("string"===typeof h)return[h,!0];if(Array.isArray(h))return[h,!1];if(t&&h){if(h.constructor===ArrayBuffer)return[new Uint8Array(h),!1];if(ArrayBuffer.isView(h))return[h,!1]}throw new Error("input is invalid type")},i="0123456789abcdef".split(""),s=[-2147483648,8388608,32768,128],e=[24,16,8,0],r=[1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,2554220882,2821834349,2952996808,3210313671,3336571891,3584528711,113926993,338241895,666307205,773529912,1294757372,1396182291,1695183700,1986661051,2177026350,2456956037,2730485921,2820302411,3259730800,3345764771,3516065817,3600352804,4094571909,275423344,430227734,506948616,659060556,883997877,958139571,1322822218,1537002063,1747873779,1955562222,2024104815,2227730452,2361852424,2428436474,2756734187,3204031479,3329325298],n=["hex","array","digest","arrayBuffer"],o=[],a=function(t,h){return function(i){return new c(h,!0).update(i)[t]()}},f=function(t){var h=a("hex",t);h.create=function(){return new c(t)},h.update=function(t){return h.create().update(t)};for(var i=0;i<n.length;++i){var s=n[i];h[s]=a(s,t)}return h},u=function(t,h){return function(i,s){return new y(i,h,!0).update(s)[t]()}},l=function(t){var h=u("hex",t);h.create=function(h){return new y(h,t)},h.update=function(t,i){return h.create(t).update(i)};for(var i=0;i<n.length;++i){var s=n[i];h[s]=u(s,t)}return h};function c(t,h){h?(o[0]=o[16]=o[1]=o[2]=o[3]=o[4]=o[5]=o[6]=o[7]=o[8]=o[9]=o[10]=o[11]=o[12]=o[13]=o[14]=o[15]=0,this.blocks=o):this.blocks=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],t?(this.h0=3238371032,this.h1=914150663,this.h2=812702999,this.h3=4144912697,this.h4=4290775857,this.h5=1750603025,this.h6=1694076839,this.h7=3204075428):(this.h0=1779033703,this.h1=3144134277,this.h2=1013904242,this.h3=2773480762,this.h4=1359893119,this.h5=2600822924,this.h6=528734635,this.h7=1541459225),this.block=this.start=this.bytes=this.hBytes=0,this.finalized=this.hashed=!1,this.first=!0,this.is224=t}function y(t,i,s){var e,r=h(t);if(t=r[0],r[1]){var n,o=[],a=t.length,f=0;for(e=0;e<a;++e)(n=t.charCodeAt(e))<128?o[f++]=n:n<2048?(o[f++]=192|n>>>6,o[f++]=128|63&n):n<55296||n>=57344?(o[f++]=224|n>>>12,o[f++]=128|n>>>6&63,o[f++]=128|63&n):(n=65536+((1023&n)<<10|1023&t.charCodeAt(++e)),o[f++]=240|n>>>18,o[f++]=128|n>>>12&63,o[f++]=128|n>>>6&63,o[f++]=128|63&n);t=o}t.length>64&&(t=new c(i,!0).update(t).array());var u=[],l=[];for(e=0;e<64;++e){var y=t[e]||0;u[e]=92^y,l[e]=54^y}c.call(this,i,s),this.update(l),this.oKeyPad=u,this.inner=!0,this.sharedMemory=s}c.prototype.update=function(t){if(this.finalized)throw new Error("finalize already called");var i=h(t);t=i[0];for(var s,r,n=i[1],o=0,a=t.length,f=this.blocks;o<a;){if(this.hashed&&(this.hashed=!1,f[0]=this.block,this.block=f[16]=f[1]=f[2]=f[3]=f[4]=f[5]=f[6]=f[7]=f[8]=f[9]=f[10]=f[11]=f[12]=f[13]=f[14]=f[15]=0),n)for(r=this.start;o<a&&r<64;++o)(s=t.charCodeAt(o))<128?f[r>>>2]|=s<<e[3&r++]:s<2048?(f[r>>>2]|=(192|s>>>6)<<e[3&r++],f[r>>>2]|=(128|63&s)<<e[3&r++]):s<55296||s>=57344?(f[r>>>2]|=(224|s>>>12)<<e[3&r++],f[r>>>2]|=(128|s>>>6&63)<<e[3&r++],f[r>>>2]|=(128|63&s)<<e[3&r++]):(s=65536+((1023&s)<<10|1023&t.charCodeAt(++o)),f[r>>>2]|=(240|s>>>18)<<e[3&r++],f[r>>>2]|=(128|s>>>12&63)<<e[3&r++],f[r>>>2]|=(128|s>>>6&63)<<e[3&r++],f[r>>>2]|=(128|63&s)<<e[3&r++]);else for(r=this.start;o<a&&r<64;++o)f[r>>>2]|=t[o]<<e[3&r++];this.lastByteIndex=r,this.bytes+=r-this.start,r>=64?(this.block=f[16],this.start=r-64,this.hash(),this.hashed=!0):this.start=r}return this.bytes>4294967295&&(this.hBytes+=this.bytes/4294967296|0,this.bytes=this.bytes%4294967296),this},c.prototype.finalize=function(){if(!this.finalized){this.finalized=!0;var t=this.blocks,h=this.lastByteIndex;t[16]=this.block,t[h>>>2]|=s[3&h],this.block=t[16],h>=56&&(this.hashed||this.hash(),t[0]=this.block,t[16]=t[1]=t[2]=t[3]=t[4]=t[5]=t[6]=t[7]=t[8]=t[9]=t[10]=t[11]=t[12]=t[13]=t[14]=t[15]=0),t[14]=this.hBytes<<3|this.bytes>>>29,t[15]=this.bytes<<3,this.hash()}},c.prototype.hash=function(){var t,h,i,s,e,n,o,a,f,u=this.h0,l=this.h1,c=this.h2,y=this.h3,p=this.h4,d=this.h5,b=this.h6,v=this.h7,w=this.blocks;for(t=16;t<64;++t)h=((e=w[t-15])>>>7|e<<25)^(e>>>18|e<<14)^e>>>3,i=((e=w[t-2])>>>17|e<<15)^(e>>>19|e<<13)^e>>>10,w[t]=w[t-16]+h+w[t-7]+i|0;for(f=l&c,t=0;t<64;t+=4)this.first?(this.is224?(n=300032,v=(e=w[0]-1413257819)-150054599|0,y=e+24177077|0):(n=704751109,v=(e=w[0]-210244248)-1521486534|0,y=e+143694565|0),this.first=!1):(h=(u>>>2|u<<30)^(u>>>13|u<<19)^(u>>>22|u<<10),s=(n=u&l)^u&c^f,v=y+(e=v+(i=(p>>>6|p<<26)^(p>>>11|p<<21)^(p>>>25|p<<7))+(p&d^~p&b)+r[t]+w[t])|0,y=e+(h+s)|0),h=(y>>>2|y<<30)^(y>>>13|y<<19)^(y>>>22|y<<10),s=(o=y&u)^y&l^n,b=c+(e=b+(i=(v>>>6|v<<26)^(v>>>11|v<<21)^(v>>>25|v<<7))+(v&p^~v&d)+r[t+1]+w[t+1])|0,h=((c=e+(h+s)|0)>>>2|c<<30)^(c>>>13|c<<19)^(c>>>22|c<<10),s=(a=c&y)^c&u^o,d=l+(e=d+(i=(b>>>6|b<<26)^(b>>>11|b<<21)^(b>>>25|b<<7))+(b&v^~b&p)+r[t+2]+w[t+2])|0,h=((l=e+(h+s)|0)>>>2|l<<30)^(l>>>13|l<<19)^(l>>>22|l<<10),s=(f=l&c)^l&y^a,p=u+(e=p+(i=(d>>>6|d<<26)^(d>>>11|d<<21)^(d>>>25|d<<7))+(d&b^~d&v)+r[t+3]+w[t+3])|0,u=e+(h+s)|0,this.chromeBugWorkAround=!0;this.h0=this.h0+u|0,this.h1=this.h1+l|0,this.h2=this.h2+c|0,this.h3=this.h3+y|0,this.h4=this.h4+p|0,this.h5=this.h5+d|0,this.h6=this.h6+b|0,this.h7=this.h7+v|0},c.prototype.hex=function(){this.finalize();var t=this.h0,h=this.h1,s=this.h2,e=this.h3,r=this.h4,n=this.h5,o=this.h6,a=this.h7,f=i[t>>>28&15]+i[t>>>24&15]+i[t>>>20&15]+i[t>>>16&15]+i[t>>>12&15]+i[t>>>8&15]+i[t>>>4&15]+i[15&t]+i[h>>>28&15]+i[h>>>24&15]+i[h>>>20&15]+i[h>>>16&15]+i[h>>>12&15]+i[h>>>8&15]+i[h>>>4&15]+i[15&h]+i[s>>>28&15]+i[s>>>24&15]+i[s>>>20&15]+i[s>>>16&15]+i[s>>>12&15]+i[s>>>8&15]+i[s>>>4&15]+i[15&s]+i[e>>>28&15]+i[e>>>24&15]+i[e>>>20&15]+i[e>>>16&15]+i[e>>>12&15]+i[e>>>8&15]+i[e>>>4&15]+i[15&e]+i[r>>>28&15]+i[r>>>24&15]+i[r>>>20&15]+i[r>>>16&15]+i[r>>>12&15]+i[r>>>8&15]+i[r>>>4&15]+i[15&r]+i[n>>>28&15]+i[n>>>24&15]+i[n>>>20&15]+i[n>>>16&15]+i[n>>>12&15]+i[n>>>8&15]+i[n>>>4&15]+i[15&n]+i[o>>>28&15]+i[o>>>24&15]+i[o>>>20&15]+i[o>>>16&15]+i[o>>>12&15]+i[o>>>8&15]+i[o>>>4&15]+i[15&o];return this.is224||(f+=i[a>>>28&15]+i[a>>>24&15]+i[a>>>20&15]+i[a>>>16&15]+i[a>>>12&15]+i[a>>>8&15]+i[a>>>4&15]+i[15&a]),f},c.prototype.toString=c.prototype.hex,c.prototype.digest=function(){this.finalize();var t=this.h0,h=this.h1,i=this.h2,s=this.h3,e=this.h4,r=this.h5,n=this.h6,o=this.h7,a=[t>>>24&255,t>>>16&255,t>>>8&255,255&t,h>>>24&255,h>>>16&255,h>>>8&255,255&h,i>>>24&255,i>>>16&255,i>>>8&255,255&i,s>>>24&255,s>>>16&255,s>>>8&255,255&s,e>>>24&255,e>>>16&255,e>>>8&255,255&e,r>>>24&255,r>>>16&255,r>>>8&255,255&r,n>>>24&255,n>>>16&255,n>>>8&255,255&n];return this.is224||a.push(o>>>24&255,o>>>16&255,o>>>8&255,255&o),a},c.prototype.array=c.prototype.digest,c.prototype.arrayBuffer=function(){this.finalize();var t=new ArrayBuffer(this.is224?28:32),h=new DataView(t);return h.setUint32(0,this.h0),h.setUint32(4,this.h1),h.setUint32(8,this.h2),h.setUint32(12,this.h3),h.setUint32(16,this.h4),h.setUint32(20,this.h5),h.setUint32(24,this.h6),this.is224||h.setUint32(28,this.h7),t},y.prototype=new c,y.prototype.finalize=function(){if(c.prototype.finalize.call(this),this.inner){this.inner=!1;var t=this.array();c.call(this,this.is224,this.sharedMemory),this.update(this.oKeyPad),this.update(t),c.prototype.finalize.call(this)}};var p=f(),d=f(!0);p.sha256=p,p.sha224=d,p.hmac=l(),d.hmac=l(!0);const b="object"==typeof globalThis?globalThis:"object"==typeof self?self:"object"==typeof window?window:"object"==typeof global?global:void 0;return b&&(b.sha224=d),p});
+    })(mod);
+    var exported = mod.exports;
+    return typeof exported === 'function' ? exported : exported.sha256;
+  })();
+
   var ICON_RETRY = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
   var ICON_EMPTY = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
 
@@ -1326,6 +1461,7 @@
       loadingMore: false,
       replyTo: null,       // 当前回复目标 comment 对象；null = 顶级
       submitting: false,
+      powComputing: false, // PoW 计算中（乐观插入之前的等待态）
       expandedSubtrees: {}, // 深度占位条已就地展开的节点 id
       expandedThreads: {},  // 已拉取全量回复的楼 root id
       loadingReplies: {},   // 正在拉全量的楼 root id
@@ -1334,6 +1470,18 @@
 
     // 表单草稿（在 reply 模式切换时保留输入）
     this.draft = { nick: '', mail: '', link: '', comment: '' };
+
+    // 验证码状态：开关由服务端 /captcha/config 下发；探测失败默认全部关闭（不阻塞旧页面）
+    this.captcha = {
+      pow: { enabled: false, difficulty: 4 },
+      image: { enabled: false },
+      loaded: false,
+      // 当前图形码
+      captchaId: '',
+      captchaImage: '',
+      captchaLoading: false,
+      captchaError: false
+    };
 
     // 若 LocalStorage 可用，复用上次的昵称/邮箱/链接（很多博客 SDK 的标准做法）
     try {
@@ -1348,12 +1496,302 @@
     injectStyles();
     this._render(); // 先渲染骨架，再异步拉取
     this._fetchComments();
+    this._fetchCaptchaConfig();
   }
 
   // ---- 网络层 ----
 
   Rustaline.prototype._apiBase = function () {
     return this.opts.server + '/api/v1/comments';
+  };
+
+  Rustaline.prototype._captchaBase = function (path) {
+    return this.opts.server + '/api/v1/captcha/' + path;
+  };
+
+  // ---- 验证码 ----
+
+  /** 探测服务端验证码开关；任何失败都静默降级为全部关闭 */
+  Rustaline.prototype._fetchCaptchaConfig = function () {
+    var self = this;
+    fetch(this._captchaBase('config'), { headers: { 'Accept': 'application/json' } })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        self.captcha.pow.enabled = !!(data && data.pow && data.pow.enabled);
+        self.captcha.pow.difficulty =
+          (data && data.pow && typeof data.pow.difficulty === 'number') ? data.pow.difficulty : 4;
+        self.captcha.image.enabled = !!(data && data.image && data.image.enabled);
+        self.captcha.loaded = true;
+        // 图形码不在初始化时预拉：改为点「发表评论」弹模态框时才拉取，
+        // 避免每次页面加载都消耗一次签发（签发接口 60 次/分钟/IP）
+        self._render();
+      })
+      .catch(function () {
+        // 探测失败：保持默认关闭，不影响评论基础功能
+        self.captcha.loaded = true;
+      });
+  };
+
+  /** 拉取一张图形验证码；失败显示可点击重试的占位条 */
+  /**
+   * 拉取一张图形验证码；失败显示可点击重试的占位条。
+   * 返回 Promise，在图片到位（或失败占位）渲染完成后 resolve，
+   * 供提交失败后的错误条在「重拉导致的重渲染」之后再追加，避免被冲掉。
+   */
+  Rustaline.prototype._loadImageCaptcha = function () {
+    var self = this;
+    this.captcha.captchaLoading = true;
+    this.captcha.captchaError = false;
+    this._render();
+    return fetch(this._captchaBase('image'), { headers: { 'Accept': 'application/json' } })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        self.captcha.captchaId = data.captcha_id || '';
+        self.captcha.captchaImage = data.image || '';
+        self.captcha.captchaLoading = false;
+        self.captcha.captchaError = false;
+        self._render();
+        self._notifyCaptchaImageChange();
+      })
+      .catch(function () {
+        self.captcha.captchaLoading = false;
+        self.captcha.captchaError = true;
+        self.captcha.captchaId = '';
+        self.captcha.captchaImage = '';
+        self._render();
+        self._notifyCaptchaImageChange();
+      });
+  };
+
+  /// 图形码状态变化通知（模态框打开期间由其同步图片区）
+  Rustaline.prototype._notifyCaptchaImageChange = function () {
+    if (this.captcha.onImageChange) {
+      try { this.captcha.onImageChange(); } catch (_) { /* ignore */ }
+    }
+  };
+
+  /**
+   * 弹出图形验证码模态框，返回 Promise：
+   *   - 用户点「确定」且输入非空 -> resolve(输入内容)
+   *   - 用户取消（取消按钮 / Esc / 点遮罩）-> resolve(null)
+   * 已有模态框打开时直接 resolve(null)（不叠加第二个框）。
+   * returnFocusEl：关闭后焦点归还的元素（提交按钮）；errorText：初始错误文案（重试场景）。
+   */
+  Rustaline.prototype._openCaptchaModal = function (returnFocusEl, errorText) {
+    var self = this;
+    var lang = this.lang;
+    if (this._captchaModal) return Promise.resolve(null);
+
+    this.captcha.modalError = errorText || '';
+
+    // 没有可用的已加载图形码时先拉一张（拉取中模态框显示占位）
+    var hasUsable = this.captcha.captchaId && this.captcha.captchaImage && !this.captcha.captchaLoading;
+    if (!hasUsable) this._loadImageCaptcha();
+
+    var overlay = document.createElement('div');
+    overlay.className = 'rs-captcha-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', lang.captchaTitle);
+
+    // 模态框挂在 body 上（_render 会清空 root，不能挂 root），
+    // 因此把根元素解析出的 --rs-* 设计令牌拷贝过来，保证跟随实例配色与明暗模式
+    try {
+      var cs = global.getComputedStyle(this.el);
+      for (var i = 0; i < cs.length; i++) {
+        var name = cs[i];
+        if (name.indexOf('--rs-') === 0) {
+          overlay.style.setProperty(name, cs.getPropertyValue(name));
+        }
+      }
+    } catch (_) { /* 取不到就用 CSS 里的兜底色 */ }
+
+    var dialog = document.createElement('div');
+    dialog.className = 'rs-captcha-dialog';
+
+    var imgBox = h('div', {
+      class: 'rs-captcha-dialog__img rs-captcha-dialog__img--placeholder',
+      text: lang.captchaLoading
+    });
+    var refreshBtn = h('button', {
+      type: 'button', class: 'rs-btn rs-btn--ghost', text: lang.captchaRefresh
+    });
+    var input = h('input', {
+      type: 'text', class: 'rs-captcha-dialog__input',
+      placeholder: lang.captchaPlaceholder, maxlength: 10,
+      autocomplete: 'off', 'autocapitalize': 'off', 'spellcheck': 'false'
+    });
+    var errBox = h('div', { class: 'rs-captcha-dialog__error', text: this.captcha.modalError });
+    var cancelBtn = h('button', { type: 'button', class: 'rs-btn rs-btn--ghost', text: lang.cancelReply });
+    var confirmBtn = h('button', { type: 'button', class: 'rs-btn rs-btn--primary', text: lang.captchaConfirm });
+
+    dialog.appendChild(h('h3', { class: 'rs-captcha-dialog__title', text: lang.captchaTitle }));
+    dialog.appendChild(h('p', { class: 'rs-captcha-dialog__hint', text: lang.captchaHint }));
+    dialog.appendChild(h('div', { class: 'rs-captcha-dialog__imgrow' }, imgBox, refreshBtn));
+    dialog.appendChild(input);
+    dialog.appendChild(errBox);
+    dialog.appendChild(h('div', { class: 'rs-captcha-dialog__actions' }, cancelBtn, confirmBtn));
+    overlay.appendChild(dialog);
+
+    refreshBtn.addEventListener('click', function () {
+      errBox.textContent = '';
+      self._loadImageCaptcha();
+    });
+
+    // 图片区随 captcha 状态重绘
+    function paintImage() {
+      var c = self.captcha;
+      var box;
+      if (c.captchaLoading || (!c.captchaImage && !c.captchaError)) {
+        box = h('div', { class: 'rs-captcha-dialog__img rs-captcha-dialog__img--placeholder', text: lang.captchaLoading });
+      } else if (c.captchaError) {
+        box = h('div', {
+          class: 'rs-captcha-dialog__img rs-captcha-dialog__img--placeholder',
+          text: lang.captchaLoadError, title: lang.captchaLoadError
+        });
+      } else {
+        box = h('img', {
+          class: 'rs-captcha-dialog__img', src: c.captchaImage,
+          alt: lang.captchaTitle, title: lang.captchaRefresh
+        });
+      }
+      box.addEventListener('click', refresh);
+      imgBox.replaceWith(box);
+      imgBox = box;
+    }
+    function refresh() {
+      errBox.textContent = '';
+      self._loadImageCaptcha();
+    }
+    this.captcha.onImageChange = paintImage;
+    paintImage();
+
+    var resolveRef = null;
+    function close(result) {
+      document.removeEventListener('keydown', onKey, true);
+      if (self.captcha.onImageChange === paintImage) self.captcha.onImageChange = null;
+      if (prevOverflow !== null) document.body.style.overflow = prevOverflow;
+      overlay.remove();
+      self._captchaModal = null;
+      if (returnFocusEl && returnFocusEl.focus) { try { returnFocusEl.focus(); } catch (_) {} }
+      if (resolveRef) resolveRef(result);
+    }
+    function confirm() {
+      var code = input.value.trim();
+      if (!code) {
+        errBox.textContent = lang.captchaPlaceholder;
+        input.focus();
+        return;
+      }
+      close(code);
+    }
+
+    cancelBtn.addEventListener('click', function () { close(null); });
+    confirmBtn.addEventListener('click', confirm);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+      e.stopPropagation();
+    });
+    var onKey = function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); close(null); }
+      else if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+    };
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(null); });
+    document.addEventListener('keydown', onKey, true);
+
+    // 打开期间锁页面滚动
+    var prevOverflow = document.body.style.overflow || '';
+    document.body.style.overflow = 'hidden';
+
+    document.body.appendChild(overlay);
+    this._captchaModal = overlay;
+    input.focus();
+
+    return new Promise(function (resolve) { resolveRef = resolve; });
+  };
+
+  /**
+   * 计算 PoW：找使 SHA-256(challenge + ':' + nonce) 前 difficulty 个十六进制位为 0 的 nonce。
+   * 优先 Web Crypto（安全上下文），不可用时走内联纯 JS 实现；循环分块让出主线程。
+   * 返回 { challenge, nonce }。
+   */
+  Rustaline.prototype._solvePow = function (difficulty) {
+    var self = this;
+    return fetch(this._captchaBase('pow'), { headers: { 'Accept': 'application/json' } })
+      .then(function (res) {
+        if (!res.ok) throw new Error('pow challenge failed');
+        return res.json();
+      })
+      .then(function (data) {
+        var challenge = data.challenge;
+        var diff = typeof data.difficulty === 'number' ? data.difficulty : difficulty;
+        return self._minePow(challenge, diff).then(function (nonce) {
+          return { challenge: challenge, nonce: nonce };
+        });
+      });
+  };
+
+  Rustaline.prototype._minePow = function (challenge, difficulty) {
+    var subtle = global.crypto && global.crypto.subtle;
+    var prefix = '';
+    for (var i = 0; i < difficulty; i++) prefix += '0';
+    var nonce = 0;
+
+    function hexFromArrayBuffer(buf) {
+      var arr = new Uint8Array(buf);
+      var hex = '';
+      for (var i = 0; i < arr.length; i++) hex += ('0' + arr[i].toString(16)).slice(-2);
+      return hex;
+    }
+
+    function attemptChunk(resolve, reject) {
+      try {
+        var bound = Math.min(nonce + 256, 0xffffffff); // 分块：256 次后让出事件循环
+        if (subtle) {
+          // Web Crypto：每次 digest 是异步微任务，顺序检查 256 个候选
+          var chain = Promise.resolve();
+          var hit = -1;
+          for (var n = nonce; n < bound; n++) {
+            (function (candidate) {
+              chain = chain.then(function () {
+                if (hit >= 0) return;
+                var msg = challenge + ':' + candidate;
+                return subtle.digest('SHA-256', new TextEncoder().encode(msg))
+                  .then(function (hash) {
+                    if (hit < 0 && hexFromArrayBuffer(hash).slice(0, difficulty) === prefix) {
+                      hit = candidate;
+                    }
+                  });
+              });
+            })(n);
+          }
+          chain.then(function () {
+            if (hit >= 0) return resolve(hit);
+            nonce = bound;
+            if (nonce >= 0xffffffff) return reject(new Error('pow exceeded nonce range'));
+            setTimeout(function () { attemptChunk(resolve, reject); }, 0);
+          });
+        } else {
+          // 纯 JS 兜底（明文 HTTP 等无 subtle 的环境）：js-sha256 直接吃字符串
+          for (n = nonce; n < bound; n++) {
+            var hex = fallbackSha256Hex(challenge + ':' + n);
+            if (hex.slice(0, difficulty) === prefix) return resolve(n);
+          }
+          nonce = bound;
+          if (nonce >= 0xffffffff) return reject(new Error('pow exceeded nonce range'));
+          setTimeout(function () { attemptChunk(resolve, reject); }, 0);
+        }
+      } catch (e) {
+        reject(e);
+      }
+    }
+    return new Promise(attemptChunk);
   };
 
   /** 取当前语言文案：字符串支持 %d 数字占位，函数值 fn(n) 处理单复数 */
@@ -1661,6 +2099,7 @@
     textarea.value = this.draft.comment;
     form.appendChild(textarea);
 
+
     // 蜜罐 input（机器人会自动填 name=hp / url 等常见字段，正常用户看不到填不到）
     var hp = h('input', {
       type: 'text', class: 'rs-honeypot',
@@ -1669,17 +2108,23 @@
     });
     form.appendChild(hp);
 
-    // 操作行
+    // 操作行（PoW 计算中文案由按钮直接展示）
     var hint = h('span', { class: 'rs-form__hint' }, this._t('formHint'));
+    var btnText = this.state.powComputing
+      ? lang.powComputing
+      : (this.state.submitting ? lang.submitting : lang.submit);
     var submitBtn = h('button', {
       type: 'submit', class: 'rs-btn rs-btn--primary',
-      text: this.state.submitting ? lang.submitting : lang.submit,
-      disabled: !!this.state.submitting
+      text: btnText,
+      disabled: !!(this.state.submitting || this.state.powComputing)
     });
     form.appendChild(h('div', { class: 'rs-form__actions' }, hint, submitBtn));
 
     // 持有引用便于读值
-    form._rs_refs = { nickInput: nickInput, mailInput: mailInput, linkInput: linkInput, textarea: textarea, hp: hp, submitBtn: submitBtn };
+    form._rs_refs = {
+      nickInput: nickInput, mailInput: mailInput, linkInput: linkInput,
+      textarea: textarea, hp: hp, submitBtn: submitBtn
+    };
     return form;
   };
 
@@ -1957,6 +2402,7 @@
     if (mail && !looksLikeMail(mail)) return this._showFormError(form, langVal(lang, 'mailInvalid'));
     var safeLink = link ? safeLinkUrl(link) : null;
     if (link && !safeLink) return this._showFormError(form, langVal(lang, 'linkInvalid'));
+    if (this.state.submitting || this.state.powComputing) return; // 防重复提交
 
     // 组请求体（与服务端契约严格对齐）
     var body = {
@@ -1990,6 +2436,82 @@
       _optimistic: true
     };
 
+    // 图形验证码走模态框收集：点「发表评论」先弹框，用户确认后才继续
+    // PoW 计算与提交（取消则什么都不做，表单内容保留）
+    if (this.captcha.image.enabled) {
+      var submitBtn = refs.submitBtn || null;
+      this._openCaptchaModal(submitBtn).then(function (code) {
+        if (code == null) return; // 用户取消
+        body.captcha_id = self.captcha.captchaId;
+        body.captcha_code = code;
+        self._continueSubmit(body, optimistic, { comment: comment, replyTarget: replyTarget });
+      });
+      return;
+    }
+    this._continueSubmit(body, optimistic, { comment: comment, replyTarget: replyTarget });
+  };
+
+  /**
+   * 客户端校验与图形码收集完成后的后续流程：
+   * 持久化身份 -> PoW 计算（在乐观插入之前）-> 乐观插入 -> 提交 -> 成功替换 / 失败回滚。
+   */
+  Rustaline.prototype._continueSubmit = function (body, optimistic, ctx) {
+    var self = this;
+    var lang = this.lang;
+    var comment = ctx.comment;
+    var replyTarget = ctx.replyTarget;
+
+    // 持久化用户身份到 localStorage（仅昵称/邮箱/链接，不含评论）
+    try {
+      if (global.localStorage) {
+        localStorage.setItem('rs_user', JSON.stringify({ nick: body.nick || '', mail: body.mail || '', link: body.link || '' }));
+      }
+    } catch (_) { /* ignore */ }
+
+    // PoW 在乐观插入之前计算（可能耗时数百毫秒～数秒，避免用户先看到「已发出」假象）。
+    // 计算期间按钮展示「安全校验计算中…」并禁用
+    if (this.captcha.pow.enabled) {
+      this.state.powComputing = true;
+      this._render();
+    }
+
+    var powPromise = this.captcha.pow.enabled
+      ? this._solvePow(this.captcha.pow.difficulty)
+      : Promise.resolve(null);
+
+    powPromise
+      .then(function (solution) {
+        if (solution) body.pow = solution;
+        self._dispatchSubmission(body, optimistic, {
+          comment: comment,
+          replyTarget: replyTarget
+        });
+      })
+      .catch(function () {
+        // 计算失败：恢复按钮态，提示用户重试（不插入乐观评论）
+        self.state.powComputing = false;
+        self._render();
+        var formNow = self.el.querySelector('.rs-form');
+        if (formNow) self._showFormError(formNow, lang.errPow);
+      });
+  };
+
+  /**
+   * PoW 计算通过后真正发送：清空表单 -> 乐观插入 -> fetch -> 成功替换 / 失败回滚。
+   * ctx 携带提交前快照，失败时恢复草稿与回复上下文。
+   */
+  Rustaline.prototype._dispatchSubmission = function (body, optimistic, ctx) {
+    var self = this;
+    var lang = this.lang;
+    var replyTarget = ctx.replyTarget;
+
+    // 清空评论框 + 退出回复模式
+    this.draft.comment = '';
+    this.draft.nick = body.nick || '';
+    this.draft.mail = body.mail || '';
+    this.draft.link = body.link || '';
+    this.state.replyTo = null;
+
     var optimisticInserted = false;
     function rollbackOptimistic() {
       if (!optimisticInserted) return;
@@ -2012,20 +2534,6 @@
       self.state.count = Math.max(0, self.state.count - 1);
     }
 
-    // 持久化用户身份到 localStorage（仅昵称/邮箱/链接，不含评论）
-    try {
-      if (global.localStorage) {
-        localStorage.setItem('rs_user', JSON.stringify({ nick: nick, mail: mail, link: link }));
-      }
-    } catch (_) { /* ignore */ }
-
-    // 清空评论框 + 退出回复模式
-    this.draft.comment = '';
-    this.draft.nick = nick;
-    this.draft.mail = mail;
-    this.draft.link = link;
-    this.state.replyTo = null;
-
     // 乐观插入并立刻重渲染（让用户看到自己的评论）：
     // 顶层评论 = 新楼插到列表头（root 倒序）；回复 = 追加到所在楼尾部（楼内升序）
     if (!replyTarget) {
@@ -2040,6 +2548,7 @@
     }
     this.state.count += 1;
     optimisticInserted = true;
+    this.state.powComputing = false; // PoW 已完成，进入提交态
     this.state.submitting = true;
     this._render();
 
@@ -2060,9 +2569,18 @@
           throw Object.assign(new Error(lang.errRate), { _kind: 'rate' });
         }
         if (res.status >= 400) {
-          // 尝试从 body 读 message
+          // 尝试从 body 读 message；识别服务端验证码错误并归类（用于本地文案与刷新图形码）
           return res.json().then(function (j) {
-            throw Object.assign(new Error((j && (j.message || j.error)) || lang.errGeneric), { _kind: 'http', _status: res.status });
+            var msg = (j && (j.message || j.error)) || lang.errGeneric;
+            var kind = 'http';
+            if (/pow verification failed/i.test(msg)) {
+              kind = 'pow';
+              msg = lang.errPow;
+            } else if (/captcha code/i.test(msg)) {
+              kind = 'captcha';
+              msg = lang.errCaptcha;
+            }
+            throw Object.assign(new Error(msg), { _kind: kind, _status: res.status });
           }, function () {
             throw Object.assign(new Error(lang.errGeneric), { _kind: 'http', _status: res.status });
           });
@@ -2104,10 +2622,24 @@
         // 乐观插入回滚（保持表单草稿，让用户能改后重发）
         rollbackOptimistic();
         self.state.submitting = false;
+        self.state.powComputing = false;
         self.state.replyTo = replyTarget; // 恢复回复上下文，方便重试
-        self.draft.comment = comment;     // 恢复评论内容
+        self.draft.comment = ctx.comment; // 恢复评论内容
         self._render();
-        // 等下一帧表单挂载后再追加错误条
+
+        // 图形码错误：服务端已作废旧码，重新弹模态框（带错误文案 + 新图）让用户重输，
+        // 比在表单里插错误条更贴近「弹框收集」这一交互
+        if (err && err._kind === 'captcha' && self.captcha.image.enabled) {
+          self.captcha.captchaId = '';
+          self._openCaptchaModal(null, err.message || lang.errCaptcha).then(function (code) {
+            if (code == null) return;
+            body.captcha_id = self.captcha.captchaId;
+            body.captcha_code = code;
+            // 重新走完整提交流程（PoW 需重新求解：上一枚 challenge 已被消费）
+            self._continueSubmit(body, optimistic, ctx);
+          });
+          return;
+        }
         var formNow = self.el.querySelector('.rs-form');
         if (formNow) {
           self._showFormError(formNow, err && err.message ? err.message : lang.errNetwork);
