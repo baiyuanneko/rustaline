@@ -28,6 +28,11 @@ pub struct AppConfig {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// 是否采信 X-Forwarded-For 推导真实客户端 IP（反代部署场景）。
+    /// 默认 false：一律使用连接对端 IP，XFF 被忽略。
+    /// 仅在 app 不可被外部直连（仅经反代可达）时才可开启，否则客户端可伪造 XFF 绕过限流。
+    #[serde(default)]
+    pub trust_xff: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -245,6 +250,7 @@ pub fn validate_captcha_config(comment: &CommentConfig) -> Result<(), String> {
 const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_SERVER_HOST", "server.host"),
     ("APP_SERVER_PORT", "server.port"),
+    ("APP_TRUST_XFF", "server.trust_xff"),
     ("APP_DATABASE_URL", "database.url"),
     ("APP_REDIS_URL", "redis.url"),
     ("APP_JWT_SECRET", "jwt.secret"),

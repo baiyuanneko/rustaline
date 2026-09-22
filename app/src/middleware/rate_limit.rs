@@ -52,8 +52,12 @@ pub async fn rate_limit_middleware(
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let ip = extract_client_ip(request.headers(), request.extensions())
-        .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
+    let ip = extract_client_ip(
+        request.headers(),
+        request.extensions(),
+        state.config.server.trust_xff,
+    )
+    .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
     let max = state.config.comment.rate_limit_per_minute;
     if !state.comment_rate_limiter.check(ip, max) {
         return Err(AppError::TooManyRequests(
@@ -77,7 +81,13 @@ pub async fn pow_issue_rate_limit_middleware(
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    run_issue_limit(&state.pow_issue_rate_limiter, request, next).await
+    run_issue_limit(
+        &state.pow_issue_rate_limiter,
+        state.config.server.trust_xff,
+        request,
+        next,
+    )
+    .await
 }
 
 /// 图形验证码签发限流 middleware，仅挂在 GET /api/v1/captcha/image 上。
@@ -86,15 +96,22 @@ pub async fn image_issue_rate_limit_middleware(
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    run_issue_limit(&state.image_issue_rate_limiter, request, next).await
+    run_issue_limit(
+        &state.image_issue_rate_limiter,
+        state.config.server.trust_xff,
+        request,
+        next,
+    )
+    .await
 }
 
 async fn run_issue_limit(
     limiter: &RateLimiter,
+    trust_xff: bool,
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let ip = extract_client_ip(request.headers(), request.extensions())
+    let ip = extract_client_ip(request.headers(), request.extensions(), trust_xff)
         .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
     if !limiter.check(ip, CAPTCHA_ISSUE_MAX_PER_MINUTE) {
         return Err(AppError::TooManyRequests(
@@ -110,8 +127,12 @@ pub async fn login_rate_limit_middleware(
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let ip = extract_client_ip(request.headers(), request.extensions())
-        .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
+    let ip = extract_client_ip(
+        request.headers(),
+        request.extensions(),
+        state.config.server.trust_xff,
+    )
+    .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
     if !state.login_rate_limiter.check(ip, LOGIN_MAX_PER_MINUTE) {
         return Err(AppError::TooManyRequests(
             "login rate limit exceeded, try again later".into(),
@@ -120,20 +141,31 @@ pub async fn login_rate_limit_middleware(
     Ok(next.run(request).await)
 }
 
-/// 取客户端 IP：优先 ConnectInfo（socket addr，由 into_make_service_with_connect_info 注入），
-/// 其次 X-Forwarded-For（反向代理场景）。两者均不可得时返回 None。
-pub fn extract_client_ip(headers: &HeaderMap, ext: &Extensions) -> Option<IpAddr> {
-    if let Some(ci) = ext.get::<ConnectInfo<SocketAddr>>() {
-        return Some(ci.0.ip());
+/// 取客户端 IP：
+/// - `trust_xff = true`（反代部署，server.trust_xff）：取 X-Forwarded-For **最右侧**
+///   可解析条目 —— 标准反代会把真实客户端 IP 追加到链尾，取首项会被客户端伪造。
+///   XFF 缺失或全部解析失败时回退 ConnectInfo 对端 IP。
+/// - `trust_xff = false`（默认）：返回 ConnectInfo 对端 IP，忽略 XFF（防伪造）；
+///   无 ConnectInfo 的测试路径（oneshot）回退取 XFF 首项，保持既有集成测试语义。
+pub fn extract_client_ip(headers: &HeaderMap, ext: &Extensions, trust_xff: bool) -> Option<IpAddr> {
+    let peer = ext.get::<ConnectInfo<SocketAddr>>().map(|ci| ci.0.ip());
+    if trust_xff {
+        return rightmost_xff_ip(headers).or(peer);
     }
-    if let Some(xff) = headers.get("x-forwarded-for")
-        && let Ok(s) = xff.to_str()
-        && let Some(first) = s.split(',').next()
-        && let Ok(ip) = first.trim().parse::<IpAddr>()
-    {
-        return Some(ip);
-    }
-    None
+    peer.or_else(|| leftmost_xff_ip(headers))
+}
+
+/// XFF 首项（仅用于无 ConnectInfo 的测试路径回退）
+fn leftmost_xff_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    let s = headers.get("x-forwarded-for")?.to_str().ok()?;
+    s.split(',').next()?.trim().parse::<IpAddr>().ok()
+}
+
+/// XFF 最右侧可解析条目；畸形条目跳过，全部畸形则 None
+fn rightmost_xff_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    let s = headers.get("x-forwarded-for")?.to_str().ok()?;
+    s.rsplit(',')
+        .find_map(|part| part.trim().parse::<IpAddr>().ok())
 }
 
 /// 复用 extract_client_ip 的 extractor，供 handler 注入客户端 IP。
@@ -145,11 +177,115 @@ impl axum::extract::FromRequestParts<AppState> for ClientIp {
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
-        _state: &AppState,
+        state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let ip = extract_client_ip(&parts.headers, &parts.extensions)
-            .map(|ip| ip.to_string())
-            .unwrap_or_else(|| "0.0.0.0".into());
+        let ip = extract_client_ip(
+            &parts.headers,
+            &parts.extensions,
+            state.config.server.trust_xff,
+        )
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "0.0.0.0".into());
         Ok(ClientIp(ip))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers_with_xff(xff: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_str(xff).unwrap());
+        headers
+    }
+
+    fn ext_with_peer(ip: &str) -> Extensions {
+        let mut ext = Extensions::new();
+        ext.insert(ConnectInfo(SocketAddr::new(ip.parse().unwrap(), 12345)));
+        ext
+    }
+
+    /// 默认（trust_xff=false）：ConnectInfo 对端 IP 优先，伪造的 XFF 被忽略
+    #[test]
+    fn untrusted_mode_ignores_xff() {
+        let headers = headers_with_xff("203.0.113.9");
+        let ext = ext_with_peer("10.0.0.1");
+        assert_eq!(
+            extract_client_ip(&headers, &ext, false),
+            Some("10.0.0.1".parse().unwrap())
+        );
+    }
+
+    /// 默认模式 + 无 ConnectInfo（oneshot 测试路径）：回退取 XFF 首项（既有语义）
+    #[test]
+    fn untrusted_mode_falls_back_to_xff_without_connect_info() {
+        let headers = headers_with_xff("203.0.113.9, 10.0.0.1");
+        let ext = Extensions::new();
+        assert_eq!(
+            extract_client_ip(&headers, &ext, false),
+            Some("203.0.113.9".parse().unwrap())
+        );
+    }
+
+    /// 反代模式（trust_xff=true）：取 XFF 最右侧条目（反代追加的真实客户端 IP），
+    /// 客户端伪造的左側条目不生效
+    #[test]
+    fn trusted_mode_takes_rightmost_xff() {
+        let headers = headers_with_xff("203.0.113.9, 198.51.100.7");
+        let ext = ext_with_peer("10.0.0.1");
+        assert_eq!(
+            extract_client_ip(&headers, &ext, true),
+            Some("198.51.100.7".parse().unwrap())
+        );
+    }
+
+    /// 反代模式 + XFF 缺失：回退 ConnectInfo 对端 IP
+    #[test]
+    fn trusted_mode_falls_back_to_peer_without_xff() {
+        let ext = ext_with_peer("10.0.0.1");
+        assert_eq!(
+            extract_client_ip(&HeaderMap::new(), &ext, true),
+            Some("10.0.0.1".parse().unwrap())
+        );
+    }
+
+    /// 反代模式 + XFF 全部畸形：跳过畸形条目取最右可解析项，全畸形则回退 peer
+    #[test]
+    fn trusted_mode_skips_malformed_xff_entries() {
+        let ext = ext_with_peer("10.0.0.1");
+        let headers = headers_with_xff("203.0.113.9, garbage");
+        assert_eq!(
+            extract_client_ip(&headers, &ext, true),
+            Some("203.0.113.9".parse().unwrap())
+        );
+        let headers = headers_with_xff("garbage, also-garbage");
+        assert_eq!(
+            extract_client_ip(&headers, &ext, true),
+            Some("10.0.0.1".parse().unwrap())
+        );
+    }
+
+    /// 反代模式 + 无 ConnectInfo：仍取 XFF 最右侧
+    #[test]
+    fn trusted_mode_without_connect_info() {
+        let headers = headers_with_xff("203.0.113.9, 198.51.100.7");
+        let ext = Extensions::new();
+        assert_eq!(
+            extract_client_ip(&headers, &ext, true),
+            Some("198.51.100.7".parse().unwrap())
+        );
+    }
+
+    /// 两者均无：None（调用方兜底 0.0.0.0）
+    #[test]
+    fn no_source_returns_none() {
+        for trust_xff in [false, true] {
+            assert_eq!(
+                extract_client_ip(&HeaderMap::new(), &Extensions::new(), trust_xff),
+                None
+            );
+        }
     }
 }

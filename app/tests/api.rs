@@ -1,6 +1,7 @@
 //! 端到端集成测试：内存 SQLite + 完整 router（tower oneshot，不起端口）。
 //! 黑名单用例会拉起本机 redis-server 临时实例；二进制不存在时自动跳过该用例
 
+use std::net::SocketAddr;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -38,6 +39,7 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
         server: ServerConfig {
             host: "127.0.0.1".into(),
             port: 0,
+            trust_xff: false,
         },
         database: DatabaseConfig {
             url: "sqlite::memory:".into(),
@@ -2270,4 +2272,110 @@ async fn captcha_pow_replay_blocked_via_redis() {
     )
     .await;
     assert!(err.is_err(), "Redis 路径重放必须失败");
+}
+
+// ---------------------------------------------------------------------------
+// H-1 / T-3 回归：真实 TcpListener + ConnectInfo 下 trust_xff 的端到端行为
+// （oneshot 测试没有 ConnectInfo，覆盖不到这条路径）
+// ---------------------------------------------------------------------------
+
+/// 裸 HTTP/1.1 POST（Connection: close），返回响应状态码
+async fn raw_post_status(addr: SocketAddr, path: &str, xff: Option<&str>, body: &str) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect test server");
+    let mut req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+        body.len()
+    );
+    if let Some(xff) = xff {
+        req.push_str(&format!("X-Forwarded-For: {xff}\r\n"));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    stream
+        .write_all(req.as_bytes())
+        .await
+        .expect("write request");
+    let mut resp = Vec::new();
+    stream.read_to_end(&mut resp).await.expect("read response");
+    let status_line = String::from_utf8_lossy(&resp);
+    status_line
+        .split_whitespace()
+        .nth(1)
+        .expect("http status code")
+        .parse()
+        .expect("numeric status code")
+}
+
+/// 在真实端口上启动 app（ConnectInfo 由 into_make_service_with_connect_info 注入）
+async fn serve_on_tcp(app: Router) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral port");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .expect("serve");
+    });
+    addr
+}
+
+/// trust_xff=true（反代部署）：限流桶按 XFF 最右侧条目计数，不同客户端 IP 不共桶
+#[tokio::test]
+async fn trust_xff_true_buckets_rate_limit_by_forwarded_ip() {
+    let mut config = test_config(false);
+    config.server.trust_xff = true;
+    let app = build_app_with_config(config).await;
+    let addr = serve_on_tcp(app).await;
+
+    let comment = json!({"url": "/xff", "comment": "hi"}).to_string();
+    let post = |xff: String| {
+        let comment = comment.clone();
+        async move { raw_post_status(addr, "/api/v1/comments", Some(&xff), &comment).await }
+    };
+
+    // 同一客户端 IP：前 5 条放行（rate_limit_per_minute 默认 5），第 6 条 429
+    for _ in 0..5 {
+        assert_eq!(post("203.0.113.9".into()).await, 201);
+    }
+    assert_eq!(post("203.0.113.9".into()).await, 429);
+    // 换一个客户端 IP：独立桶，不与上面共桶
+    assert_eq!(post("203.0.113.10".into()).await, 201);
+    // 多跳 XFF：取最右侧条目（反代追加的真实客户端 IP），
+    // 左側已被打满的 203.0.113.9 不影响 198.51.100.7 的桶
+    assert_eq!(post("203.0.113.9, 198.51.100.7".into()).await, 201);
+    // XFF 缺失：回退对端 IP（127.0.0.1），独立桶
+    assert_eq!(
+        raw_post_status(addr, "/api/v1/comments", None, &comment).await,
+        201
+    );
+}
+
+/// trust_xff=false（默认）：XFF 一律忽略，全部请求按对端 IP（127.0.0.1）共桶，
+/// 伪造 XFF 无法绕过限流
+#[tokio::test]
+async fn trust_xff_false_ignores_forwarded_header() {
+    let app = build_app(None, false).await;
+    let addr = serve_on_tcp(app).await;
+
+    let comment = json!({"url": "/xff", "comment": "hi"}).to_string();
+    // 每个请求都伪造不同的 XFF：默认模式下必须仍按 127.0.0.1 共桶
+    for i in 0..5u8 {
+        let xff = format!("203.0.113.{i}");
+        assert_eq!(
+            raw_post_status(addr, "/api/v1/comments", Some(&xff), &comment).await,
+            201
+        );
+    }
+    assert_eq!(
+        raw_post_status(addr, "/api/v1/comments", Some("203.0.113.250"), &comment).await,
+        429
+    );
 }

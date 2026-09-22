@@ -71,7 +71,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("swagger ui at http://{addr}/swagger-ui/");
 
     // into_make_service_with_connect_info 注入 ConnectInfo<SocketAddr> 到请求扩展，
-    // 供评论提交 handler 与限流中间件提取客户端真实 IP（无反向代理时为 socket addr）。
+    // 供评论提交 handler 与限流中间件提取客户端对端 IP；server.trust_xff 开启时
+    // （反代部署）改从 X-Forwarded-For 最右侧条目推导（见 middleware/rate_limit.rs）。
+    if state.config.server.trust_xff {
+        tracing::warn!(
+            "server.trust_xff = true：客户端 IP 将从 X-Forwarded-For 推导；\
+             请确保 app 不可被外部直连、仅经反代可达，否则客户端可伪造 XFF 绕过限流"
+        );
+    }
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

@@ -187,6 +187,7 @@ sea-orm-cli generate entity -o app/src/entities --with-serde none
 | --- | --- | --- | --- |
 | `APP_SERVER_HOST` | `APP_SERVER__HOST` | 监听地址 | `0.0.0.0` |
 | `APP_SERVER_PORT` | `APP_SERVER__PORT` | 监听端口 | `8080` |
+| `APP_TRUST_XFF` | `APP_SERVER__TRUST_XFF` | 反代部署时采信 X-Forwarded-For 推导真实客户端 IP（取最右侧条目）；**仅当 app 不可被外部直连、仅经反代可达时开启**，否则客户端可伪造 XFF 绕过限流 | `false` |
 | `APP_DATABASE_URL` | `APP_DATABASE__URL` | 数据库连接串 | `sqlite://./data/bynrust26.db?mode=rwc` |
 | `APP_REDIS_URL` | `APP_REDIS__URL` | Redis 连接串 | `redis://127.0.0.1:6379` |
 | `APP_JWT_SECRET` | `APP_JWT__SECRET` | JWT 签名密钥；启动时校验强度（拒绝已知弱默认值，要求 ≥32 字节，不满足即启动失败）。用 `openssl rand -base64 48` 生成 | 无（占位值会被拒绝） |

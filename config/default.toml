@@ -4,6 +4,10 @@
 [server]
 host = "0.0.0.0"
 port = 8080
+# 反代部署时是否采信 X-Forwarded-For 推导真实客户端 IP（取最右侧条目）。
+# 默认 false：一律使用连接对端 IP，XFF 被忽略。
+# 仅当 app 不可被外部直连、仅经反代可达时才可置 true，否则客户端可伪造 XFF 绕过限流。
+trust_xff = false
 
 [database]
 # SQLite 文件路径，启动时会自动创建父目录；?mode=rwc 表示不存在则创建

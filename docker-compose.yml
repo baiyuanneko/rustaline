@@ -52,6 +52,10 @@ services:
       APP_INITIAL_ADMIN_USERNAME: ${APP_INITIAL_ADMIN_USERNAME:-admin}
       APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:-}
       APP_LOG_LEVEL: info
+      # 反向代理部署（反代加入本 compose 网络）时开启：客户端 IP 改从 X-Forwarded-For 推导，
+      # 限流桶 / 评论 ip 落库 / 验证码 IP 绑定随之按真实客户端生效。
+      # 前提：app 不可被外部直连（本文件默认不发布端口，恰好满足）
+      # APP_TRUST_XFF: "true"
     volumes:
       - sqlite-data:/app/data
     # 默认不绑定宿主机端口，app 仅在 compose 内网可达（redis 走内部服务名通信，本来就不绑定）。

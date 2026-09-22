@@ -89,7 +89,7 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - 除 login / health / swagger 外，接口一律加 `AuthUser` extractor 参数做认证。**例外**：公共评论接口 `GET/POST /api/v1/comments` 按 Valine 语义匿名开放，靠限流 + 蜜罐 + moderation 防滥用。
 - 需要登录的接口在 utoipa 注解里加 `security(("bearer_auth" = []))`。
 - 公共评论响应 DTO 绝不包含 ip / mail / ua / status（隐私）；这些字段仅出现在 `/api/v1/admin/*` 响应中。唯一例外：`ua_summary`（`services/ua.rs` 解析出的评论者环境摘要，如 "Chrome 126 · Windows"），由 `comment.display_commenter_user_agent`（env `APP_DISPLAY_COMMENTER_USER_AGENT`）控制，默认开启；原始 ua 仍绝不进公共响应。
-- 提交评论的 ip/ua 由服务端采集（ConnectInfo socket addr 优先、X-Forwarded-For 兜底），客户端 body 传的一律忽略。
+- 提交评论的 ip/ua 由服务端采集，客户端 body 传的一律忽略。客户端 IP 统一经 `middleware/rate_limit.rs::extract_client_ip` 推导：默认（`server.trust_xff=false`）使用 ConnectInfo 对端 IP、忽略 X-Forwarded-For（防伪造）；反代部署置 `APP_TRUST_XFF=true` 后取 XFF **最右侧**可解析条目（标准反代把真实客户端 IP 追加在链尾，取首项会被客户端伪造），XFF 缺失或全畸形时回退对端 IP。**仅当 app 不可被外部直连、仅经反代可达时才可开启 trust_xff**，否则客户端可伪造 XFF 绕过全部限流。所有限流桶、`comments.ip` 落库与 `captcha.bind_ip` 都走这一个函数。
 - 迁移用 sea-query 跨库写法（`sea_orm_migration::schema::*` 辅助函数），不要写单库专有 SQL；新迁移文件命名 `mYYYYMMDD_NNNNNN_<描述>.rs` 并注册进 `migration/src/lib.rs`。
 - 时间戳统一 `chrono::NaiveDateTime`（实体 `DateTime`，migration 用 `date_time(...)`），由 service 层显式赋值。序列化为 UTC 朴素时间（无时区后缀）；**前端（SDK / 管理面板）解析时必须按 UTC 处理**（现有 `parseServerTime` 助手），否则非 UTC 时区显示偏差。
 - 表名用复数（`comments`），避免与数据库保留字冲突。
