@@ -290,6 +290,17 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
 ];
 
+/// APP_* 环境变量源：前缀 `APP` + `_`，层级分隔符 `__`（如 `APP_SERVER__PORT` -> `server.port`）。
+/// 必须显式 `prefix_separator("_")`：config crate 未设置时会让前缀分隔符回退沿用
+/// separator，实际匹配前缀变成 `app__`，文档中的单下划线写法会被静默丢弃。
+/// `try_parsing(true)` 使数值 / 布尔字段（如 `APP_SERVER__PORT=9000`）能反序列化。
+fn env_source() -> Environment {
+    Environment::with_prefix("APP")
+        .prefix_separator("_")
+        .separator("__")
+        .try_parsing(true)
+}
+
 impl AppConfig {
     pub fn load() -> Result<Self, config::ConfigError> {
         // .env 存在则加载（不存在不视为错误）
@@ -298,7 +309,7 @@ impl AppConfig {
         let mut builder = Config::builder()
             .add_source(File::with_name("config/default"))
             .add_source(File::with_name("config/local").required(false))
-            .add_source(Environment::with_prefix("APP").separator("__"));
+            .add_source(env_source());
 
         // 常用项的单层环境变量简写，优先级最高。
         // 预先按 i64 / bool 解析，保证能反序列化到数值 / 布尔字段
@@ -321,7 +332,41 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_jwt_secret;
+    use super::{env_source, validate_jwt_secret};
+    use config::Config;
+
+    /// 嵌套环境变量写法（`APP_<段>__<键>`，README 文档承诺的格式）必须生效。
+    /// 回归防护：config crate 未显式设置 prefix_separator 时会回退沿用 separator，
+    /// 导致实际匹配前缀为 `app__`，单下划线写法被静默丢弃。
+    #[test]
+    fn nested_env_vars_override_config_keys() {
+        // crate 内无其他测试读写环境变量；测完即清除，避免泄漏
+        unsafe {
+            std::env::set_var("APP_DATABASE__URL", "sqlite://nested-env.db?mode=rwc");
+            std::env::set_var("APP_SERVER__PORT", "19091");
+            std::env::set_var("APP_COMMENT__CAPTCHA__POW_ENABLED", "false");
+        }
+        let cfg = Config::builder()
+            .add_source(env_source())
+            .build()
+            .expect("env source should build");
+        unsafe {
+            std::env::remove_var("APP_DATABASE__URL");
+            std::env::remove_var("APP_SERVER__PORT");
+            std::env::remove_var("APP_COMMENT__CAPTCHA__POW_ENABLED");
+        }
+
+        assert_eq!(
+            cfg.get_string("database.url").expect("database.url"),
+            "sqlite://nested-env.db?mode=rwc",
+        );
+        // try_parsing：数值 / 布尔字段不能停留在字符串形态
+        assert_eq!(cfg.get::<u16>("server.port").ok(), Some(19091));
+        assert_eq!(
+            cfg.get::<bool>("comment.captcha.pow_enabled").ok(),
+            Some(false),
+        );
+    }
 
     #[test]
     fn jwt_secret_rejects_known_weak_values() {

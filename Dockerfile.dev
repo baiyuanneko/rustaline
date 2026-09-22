@@ -2,9 +2,11 @@
 # 源码在运行时通过 volume 挂载，由容器内 cargo-watch 监视改动并增量重编译重启。
 # gcc 是必需的：sqlx-sqlite 会编译内嵌的 libsqlite3（C 代码），rust slim 镜像默认没有 C 链接器；
 # curl/ca-certificates 是 utoipa-swagger-ui 的 build script 下载 Swagger UI zip 所需。
-FROM rust:1-slim
+# 钉死 Debian 代号 bookworm，与生产 Dockerfile 的 builder/runtime 保持一致，
+# 避免 rust:1-slim 浮动标签滚动到更新的发行版造成 dev/prod 的 glibc 漂移
+FROM rust:1-slim-bookworm
 
-# apt 换阿里云镜像加速（trixie 使用 deb822 格式源文件）
+# apt 换阿里云镜像加速（deb822 格式源文件）
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends gcc curl ca-certificates \

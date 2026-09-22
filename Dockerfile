@@ -2,7 +2,10 @@
 
 # ---------- builder ----------
 # 注意：这是 Cargo workspace，必须 COPY 整个 workspace 再构建，不能只 COPY app/
-FROM rust:1-slim AS builder
+# builder 与 runtime 必须钉死同一 Debian 代号（bookworm）：rust:1-slim 是浮动标签，
+# 若其滚动到更新的发行版（glibc 更高）而 runtime 不跟进，编译出的二进制会在启动时
+# 因 GLIBC_x.xx not found 崩溃，且构建期无任何告警
+FROM rust:1-slim-bookworm AS builder
 
 # apt 换阿里云镜像加速；gcc 是必需的（sqlx-sqlite 会编译内嵌的 libsqlite3，需要 C 链接器）
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
