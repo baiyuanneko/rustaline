@@ -4,10 +4,11 @@
 //! - 嵌套：`APP_SERVER__PORT=9000`（`__` 分隔层级）
 //! - 常用项简写：`APP_DATABASE_URL`、`APP_REDIS_URL`、`APP_JWT_SECRET` 等（见下方映射表）
 
-use config::{Config, Environment, File};
+use config::{Config, File};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -25,6 +26,7 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
@@ -36,16 +38,19 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DatabaseConfig {
     pub url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RedisConfig {
     pub url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JwtConfig {
     pub secret: String,
     /// access token 有效期（秒）
@@ -55,11 +60,13 @@ pub struct JwtConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LogConfig {
     pub level: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StaticConfig {
     /// 静态文件目录（兜底挂载在根路径），相对路径基于应用工作目录
     pub dir: String,
@@ -74,6 +81,7 @@ fn default_true() -> bool {
 
 /// Swagger UI / OpenAPI 文档开关；关闭后 /swagger-ui 与 /api-doc/openapi.json 不再挂载（404）
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SwaggerConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -86,6 +94,7 @@ impl Default for SwaggerConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommentConfig {
     /// true 时新评论 status=pending，需审核后才公开
     #[serde(default)]
@@ -115,6 +124,7 @@ pub struct CommentConfig {
 /// 评论验证码配置：PoW 与图形码完全独立，同时开启时为 AND（两道都要过）。
 /// 默认两种验证码均开启（防滥用优先），可用环境变量显式关闭。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CaptchaConfig {
     /// 是否启用基于 SHA-256 hashcash 的工作量证明
     #[serde(default = "default_true")]
@@ -202,6 +212,7 @@ impl Default for CommentConfig {
 
 /// 启动时确保存在的初始管理员账号；两个字段都设置才会生效
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InitialAdminConfig {
     pub username: Option<String>,
     pub password: Option<String>,
@@ -296,15 +307,37 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
 ];
 
-/// APP_* 环境变量源：前缀 `APP` + `_`，层级分隔符 `__`（如 `APP_SERVER__PORT` -> `server.port`）。
-/// 必须显式 `prefix_separator("_")`：config crate 未设置时会让前缀分隔符回退沿用
-/// separator，实际匹配前缀变成 `app__`，文档中的单下划线写法会被静默丢弃。
-/// `try_parsing(true)` 使数值 / 布尔字段（如 `APP_SERVER__PORT=9000`）能反序列化。
-fn env_source() -> Environment {
-    Environment::with_prefix("APP")
-        .prefix_separator("_")
-        .separator("__")
-        .try_parsing(true)
+/// 解析环境变量原始字符串：优先按 i64 / bool 解析，保证数值 / 布尔字段能反序列化，
+/// 其余按原样字符串处理。
+fn parse_env_value(raw: &str) -> config::Value {
+    if let Ok(int) = raw.parse::<i64>() {
+        int.into()
+    } else if let Ok(flag) = raw.parse::<bool>() {
+        flag.into()
+    } else {
+        raw.into()
+    }
+}
+
+/// 嵌套环境变量（`APP_<段>__<键>`，如 `APP_SERVER__PORT` -> `server.port`）的覆盖项。
+///
+/// 手动枚举而非 `Environment::with_prefix("APP")`：后者会把 `APP_JWT_SECRET` 这类
+/// 单层简写、乃至环境里任何无关的 `APP_*` 变量一并混入配置树（`APP_JWT_SECRET` 会变成
+/// 顶层未知键 `jwt_secret`），与结构体上的 `deny_unknown_fields` 冲突导致启动失败。
+/// 这里只收含 `__` 的嵌套写法，未知嵌套键同样会在反序列化时被拒绝（拼写错误即报错）。
+fn nested_env_overrides() -> Vec<(String, config::Value)> {
+    std::env::vars()
+        .filter_map(|(name, raw)| {
+            let rest = name.strip_prefix("APP_")?;
+            if !rest.contains("__") {
+                return None;
+            }
+            Some((
+                rest.to_ascii_lowercase().replace("__", "."),
+                parse_env_value(&raw),
+            ))
+        })
+        .collect()
 }
 
 impl AppConfig {
@@ -314,21 +347,17 @@ impl AppConfig {
 
         let mut builder = Config::builder()
             .add_source(File::with_name("config/default"))
-            .add_source(File::with_name("config/local").required(false))
-            .add_source(env_source());
+            .add_source(File::with_name("config/local").required(false));
+
+        // 嵌套环境变量（APP_X__Y），优先级高于文件。
+        for (key, value) in nested_env_overrides() {
+            builder = builder.set_override(key, value)?;
+        }
 
         // 常用项的单层环境变量简写，优先级最高。
-        // 预先按 i64 / bool 解析，保证能反序列化到数值 / 布尔字段
         for (env, key) in FLAT_ENV_MAP {
             if let Ok(raw) = std::env::var(env) {
-                let value: config::Value = if let Ok(int) = raw.parse::<i64>() {
-                    int.into()
-                } else if let Ok(flag) = raw.parse::<bool>() {
-                    flag.into()
-                } else {
-                    raw.into()
-                };
-                builder = builder.set_override(*key, value)?;
+                builder = builder.set_override(*key, parse_env_value(&raw))?;
             }
         }
 
@@ -338,12 +367,10 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{env_source, validate_jwt_secret};
-    use config::Config;
+    use super::{AppConfig, nested_env_overrides, validate_jwt_secret};
+    use config::{Config, File, FileFormat};
 
     /// 嵌套环境变量写法（`APP_<段>__<键>`，README 文档承诺的格式）必须生效。
-    /// 回归防护：config crate 未显式设置 prefix_separator 时会回退沿用 separator，
-    /// 导致实际匹配前缀为 `app__`，单下划线写法被静默丢弃。
     #[test]
     fn nested_env_vars_override_config_keys() {
         // crate 内无其他测试读写环境变量；测完即清除，避免泄漏
@@ -352,25 +379,115 @@ mod tests {
             std::env::set_var("APP_SERVER__PORT", "19091");
             std::env::set_var("APP_COMMENT__CAPTCHA__POW_ENABLED", "false");
         }
-        let cfg = Config::builder()
-            .add_source(env_source())
-            .build()
-            .expect("env source should build");
+        let overrides = nested_env_overrides();
         unsafe {
             std::env::remove_var("APP_DATABASE__URL");
             std::env::remove_var("APP_SERVER__PORT");
             std::env::remove_var("APP_COMMENT__CAPTCHA__POW_ENABLED");
         }
 
+        let mut builder = Config::builder();
+        for (key, value) in overrides {
+            builder = builder.set_override(key, value).expect("set_override");
+        }
+        let cfg = builder.build().expect("env overrides should build");
+
         assert_eq!(
             cfg.get_string("database.url").expect("database.url"),
             "sqlite://nested-env.db?mode=rwc",
         );
-        // try_parsing：数值 / 布尔字段不能停留在字符串形态
+        // 数值 / 布尔字段不能停留在字符串形态
         assert_eq!(cfg.get::<u16>("server.port").ok(), Some(19091));
         assert_eq!(
             cfg.get::<bool>("comment.captcha.pow_enabled").ok(),
             Some(false),
+        );
+    }
+
+    /// 单层简写（如 APP_JWT_SECRET）走 FLAT_ENV_MAP 显式映射，不得作为未知键
+    /// 混入配置树（否则 deny_unknown_fields 会让任何简写变量都导致启动失败）。
+    #[test]
+    fn flat_env_names_are_not_collected_as_nested_overrides() {
+        unsafe {
+            std::env::set_var("APP_JWT_SECRET", "flat-secret");
+            std::env::set_var("APP_COMMENT__CAPTCHA__BIND_IP", "true");
+        }
+        let overrides = nested_env_overrides();
+        unsafe {
+            std::env::remove_var("APP_JWT_SECRET");
+            std::env::remove_var("APP_COMMENT__CAPTCHA__BIND_IP");
+        }
+
+        assert!(
+            !overrides.iter().any(|(key, _)| key == "jwt_secret"),
+            "flat name must not enter config tree: {overrides:?}"
+        );
+        assert!(
+            overrides
+                .iter()
+                .any(|(key, _)| key == "comment.captcha.bind_ip"),
+            "nested name must be collected: {overrides:?}"
+        );
+    }
+
+    /// 实际 config/default.toml 必须能无未知键地反序列化，且 [comment.captcha]
+    /// 段的值真正落到 CaptchaConfig（回归 H-4：段名错位为顶层 [captcha] 时
+    /// deny_unknown_fields 会在第一步直接报错）。
+    #[test]
+    fn default_toml_loads_captcha_section() {
+        let cfg: AppConfig = Config::builder()
+            .add_source(File::from_str(
+                include_str!("../../config/default.toml"),
+                FileFormat::Toml,
+            ))
+            .build()
+            .expect("default.toml should parse")
+            .try_deserialize()
+            .expect("default.toml must contain no unknown keys");
+
+        // 与 config/default.toml 中的值一一对应
+        let c = &cfg.comment.captcha;
+        assert!(c.pow_enabled);
+        assert_eq!(c.pow_difficulty, 4);
+        assert_eq!(c.pow_ttl_secs, 600);
+        assert!(c.image_enabled);
+        assert_eq!(c.image_ttl_secs, 300);
+        assert_eq!(c.image_max_attempts, 3);
+        assert!(!c.bind_ip);
+        assert!(c.secret.is_empty());
+    }
+
+    /// 未知键必须在加载时报错而不是被静默忽略（H-4 的原始形态：顶层 [captcha]）。
+    #[test]
+    fn unknown_keys_are_rejected() {
+        let toml = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 8080
+            [database]
+            url = "sqlite::memory:"
+            [redis]
+            url = "redis://127.0.0.1:6379"
+            [jwt]
+            secret = "x"
+            ttl_secs = 3600
+            blacklist_enabled = false
+            [log]
+            level = "info"
+            [static]
+            dir = "static"
+            [captcha]
+            pow_enabled = true
+        "#;
+        let err = Config::builder()
+            .add_source(File::from_str(toml, FileFormat::Toml))
+            .build()
+            .expect("toml should parse")
+            .try_deserialize::<AppConfig>()
+            .expect_err("unknown [captcha] section must be rejected");
+        assert!(
+            err.to_string().contains("captcha"),
+            "error should name the unknown key: {err}"
         );
     }
 

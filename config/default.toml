@@ -56,7 +56,7 @@ avatar_cdn = "https://gravatar.loli.net/avatar/"
 display_commenter_user_agent = true
 
 # 评论验证码：PoW 与图形码相互独立，两者都开启时为 AND（两道都要过）。默认都开启
-[captcha]
+[comment.captcha]
 # 基于 SHA-256 hashcash 的工作量证明开关；置 false 可退回旧行为（仅限流 + 蜜罐 + 审核）
 pow_enabled = true
 # PoW 难度：哈希十六进制前导零位数（期望 16^n 次哈希，4 = 约 6.5 万次，桌面无感）

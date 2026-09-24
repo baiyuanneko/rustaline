@@ -13,6 +13,14 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
+    # Redis 里存着安全状态：JWT 注销黑名单 + 验证码防重放消费记录（SET NX EX）。
+    # 镜像声明的匿名卷在 compose down 时随容器一起删除，down/up 会让未过期的
+    # 已注销 token / 已消费 PoW challenge 复活（H-14），故必须挂命名卷。
+    # AOF 持久化（everysec）：优雅停机零丢失，崩溃丢至多 ~1s 写入；
+    # TTL 以绝对时间戳落盘，恢复后按剩余有效期正常过期。
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -40,8 +48,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    # 项目 .env 整体注入容器：审核开关 / 验证码开关 / Swagger 开关等所有 APP_* 都生效。
+    # 注意：Compose 只拿 .env 做 ${...} 插值、并不会自动传给容器，不声明 env_file 时
+    # .env 里未被下方 environment 引用的字段全部静默丢失（H-13）。
+    # required=false：允许只导出 shell 环境变量、不放 .env 文件的部署方式。
+    env_file:
+      - path: .env
+        required: false
     environment:
-      # 容器内用绝对路径，数据落在挂载卷里
+      # 容器内用绝对路径，数据落在挂载卷里（environment 优先级高于 env_file，
+      # .env 里指向本机的 DB/Redis 地址不会覆盖这里）
       APP_DATABASE_URL: sqlite:///app/data/bynrust26.db?mode=rwc
       APP_REDIS_URL: redis://redis:6379
       # 生产环境必须通过 .env / secret 注入随机密钥（缺失即拒绝启动），生成：
@@ -51,7 +67,8 @@ services:
       # 入库后这两个变量被忽略（改密码走管理面板），届时可从 .env 中移除
       APP_INITIAL_ADMIN_USERNAME: ${APP_INITIAL_ADMIN_USERNAME:-admin}
       APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:-}
-      APP_LOG_LEVEL: info
+      # 日志级别可由 .env 覆盖（默认 info）
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
       # 反向代理部署（反代加入本 compose 网络）时开启：客户端 IP 改从 X-Forwarded-For 推导，
       # 限流桶 / 评论 ip 落库 / 验证码 IP 绑定随之按真实客户端生效。
       # 前提：app 不可被外部直连（本文件默认不发布端口，恰好满足）
@@ -65,4 +82,5 @@ services:
 
 volumes:
   sqlite-data:
+  redis-data:
   # pg-data:

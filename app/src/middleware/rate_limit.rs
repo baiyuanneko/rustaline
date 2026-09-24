@@ -1,7 +1,8 @@
 //! 评论提交限流：内存滑动窗口，单 IP 每分钟最多 N 次（N = config.comment.rate_limit_per_minute）。
 //! 仅挂在 POST /api/v1/comments 上。
 
-use std::collections::{HashMap, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -16,9 +17,33 @@ use crate::state::AppState;
 
 const WINDOW: Duration = Duration::from_secs(60);
 
+/// 单个限流器实例最多追踪的 IP 数：超出时丢弃最久未活跃的条目。
+/// 容量保护，防直接暴露公网时用 IPv6 地址池轮换无界撑内存（M-1）；
+/// 被丢弃 IP 的计数重新开始，属内存有界限流的标准取舍（其上还有验证码 / 蜜罐 / 审核兜底）。
+const MAX_TRACKED_IPS: usize = 65_536;
+
+/// 两次全量清扫的最小间隔：过期条目至多多存活一个窗口 + 一个间隔。
+/// 由 check() 顺带触发（摊销），无需后台任务。
+const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+
 #[derive(Clone, Default)]
 pub struct RateLimiter {
-    inner: Arc<Mutex<HashMap<IpAddr, VecDeque<Instant>>>>,
+    inner: Arc<LimiterInner>,
+}
+
+struct LimiterInner {
+    map: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+    last_sweep: Mutex<Instant>,
+}
+
+impl Default for LimiterInner {
+    /// Instant 未实现 Default，起点取当前时刻（首次清扫在 SWEEP_INTERVAL 之后）
+    fn default() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+            last_sweep: Mutex::new(Instant::now()),
+        }
+    }
 }
 
 impl RateLimiter {
@@ -28,7 +53,8 @@ impl RateLimiter {
 
     /// 返回 true 表示允许请求；false 表示已超限。
     pub fn check(&self, ip: IpAddr, max: u32) -> bool {
-        let mut map = self.inner.lock().expect("rate limiter mutex poisoned");
+        self.maybe_sweep();
+        let mut map = self.inner.map.lock().expect("rate limiter mutex poisoned");
         let now = Instant::now();
         let queue = map.entry(ip).or_default();
         while let Some(&front) = queue.front() {
@@ -43,6 +69,46 @@ impl RateLimiter {
         }
         queue.push_back(now);
         true
+    }
+
+    /// 距上次清扫超过 SWEEP_INTERVAL 时顺带全量清扫一次。
+    /// 只持有 last_sweep 锁做判定，实际的 map 锁在 sweep_at 内获取，无嵌套锁。
+    fn maybe_sweep(&self) {
+        let now = Instant::now();
+        let mut last = self
+            .inner
+            .last_sweep
+            .lock()
+            .expect("rate limiter mutex poisoned");
+        if now.duration_since(*last) < SWEEP_INTERVAL {
+            return;
+        }
+        *last = now;
+        drop(last);
+        self.sweep_at(now);
+    }
+
+    /// 全量清扫：回收整体超窗的 IP 条目（M-1：不再回访的 IP 不得常驻），
+    /// 仍超 MAX_TRACKED_IPS 时保留最近活跃的条目（容量保护，与 CaptchaMemoryStore::prune 同风格）。
+    fn sweep_at(&self, now: Instant) {
+        let mut map = self.inner.map.lock().expect("rate limiter mutex poisoned");
+        // 队列按时间升序 push，back() 即最近一次请求；整体超窗即整条删除（空队列同理）
+        map.retain(|_, queue| {
+            queue
+                .back()
+                .is_some_and(|&t| now.duration_since(t) < WINDOW)
+        });
+        if map.len() <= MAX_TRACKED_IPS {
+            return;
+        }
+        let mut last_seen: Vec<(IpAddr, Instant)> = map
+            .iter()
+            .map(|(ip, queue)| (*ip, *queue.back().expect("retained queues are non-empty")))
+            .collect();
+        last_seen.sort_unstable_by_key(|&(_, t)| Reverse(t));
+        last_seen.truncate(MAX_TRACKED_IPS);
+        let keep: HashSet<IpAddr> = last_seen.into_iter().map(|(ip, _)| ip).collect();
+        map.retain(|ip, _| keep.contains(ip));
     }
 }
 
@@ -194,6 +260,7 @@ impl axum::extract::FromRequestParts<AppState> for ClientIp {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+    use std::net::Ipv6Addr;
 
     fn headers_with_xff(xff: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -287,5 +354,68 @@ mod tests {
                 None
             );
         }
+    }
+
+    fn map_len(limiter: &RateLimiter) -> usize {
+        limiter.inner.map.lock().unwrap().len()
+    }
+
+    /// 窗口内正常计数与超限拒绝
+    #[test]
+    fn check_enforces_max_within_window() {
+        let limiter = RateLimiter::new();
+        let ip: IpAddr = "203.0.113.10".parse().unwrap();
+        assert!(limiter.check(ip, 2));
+        assert!(limiter.check(ip, 2));
+        assert!(!limiter.check(ip, 2), "窗口内第 3 次必须被拒绝");
+    }
+
+    /// 清扫回收整体超窗的 IP 条目（M-1 核心：不再回访的 IP 不得常驻 HashMap）
+    #[test]
+    fn sweep_removes_stale_ip_entries() {
+        let limiter = RateLimiter::new();
+        let a: IpAddr = "203.0.113.10".parse().unwrap();
+        let b: IpAddr = "2001:db8::1".parse().unwrap();
+        assert!(limiter.check(a, 5));
+        assert!(limiter.check(b, 5));
+        assert_eq!(map_len(&limiter), 2);
+
+        // 窗口未过：条目保留
+        limiter.sweep_at(Instant::now() + Duration::from_secs(10));
+        assert_eq!(map_len(&limiter), 2);
+
+        // 整体超窗：全部回收（含空队列防御路径）
+        limiter.sweep_at(Instant::now() + WINDOW + Duration::from_secs(1));
+        assert_eq!(map_len(&limiter), 0, "超窗条目必须被回收");
+
+        // 回访 IP 重新计数，行为不变
+        assert!(limiter.check(a, 5));
+        assert_eq!(map_len(&limiter), 1);
+    }
+
+    /// 超出容量上限时保留最近活跃的条目（容量保护）
+    #[test]
+    fn sweep_enforces_capacity_cap() {
+        let limiter = RateLimiter::new();
+        let bulk = MAX_TRACKED_IPS + 1024;
+        let oldest: IpAddr = IpAddr::from(Ipv6Addr::from(1u128));
+        for i in 1..=bulk as u128 {
+            assert!(limiter.check(IpAddr::from(Ipv6Addr::from(i)), 5));
+        }
+        // 间隔确保 marker 的时间戳严格晚于全部批量条目
+        std::thread::sleep(Duration::from_millis(20));
+        let newest: IpAddr = IpAddr::from(Ipv6Addr::from(u128::MAX));
+        assert!(limiter.check(newest, 5));
+
+        limiter.sweep_at(Instant::now());
+        assert_eq!(map_len(&limiter), MAX_TRACKED_IPS);
+        assert!(
+            limiter.inner.map.lock().unwrap().contains_key(&newest),
+            "最近活跃的条目必须保留"
+        );
+        assert!(
+            !limiter.inner.map.lock().unwrap().contains_key(&oldest),
+            "最久未活跃的条目应被容量保护淘汰"
+        );
     }
 }

@@ -40,6 +40,9 @@ pub struct CommentPublicResponse {
     /// UA 解析摘要（如 "Chrome 126 · Windows"），供前端展示评论者环境徽章。
     /// 仅当 comment.display_commenter_user_agent = true 时下发；原始 ua 绝不出现在公共响应
     pub ua_summary: Option<String>,
+    /// 是否为待审核评论：仅 POST 创建响应可能为 true（moderation 开启时）；
+    /// 列表接口只返回 approved 评论，该字段恒为 false。只是布尔标志，不暴露具体 status
+    pub pending: bool,
 }
 
 /// 一楼（root 评论 + 回复预览）：root 字段平铺自 CommentPublicResponse

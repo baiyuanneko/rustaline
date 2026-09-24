@@ -596,6 +596,8 @@ fn fake_response(
         inserted_at: Utc::now().naive_utc(),
         // 蜜罐提交不会有真实入库行，摘要无从谈起
         ua_summary: None,
+        // 蜜罐假响应不落库，谈不上待审核
+        pending: false,
     }
 }
 
@@ -606,6 +608,9 @@ fn public_dto_from_model(m: comments::Model, config: &CommentConfig) -> CommentP
     } else {
         None
     };
+    // pending 仅由 status 推导为布尔标志：列表接口只查 approved（恒 false），
+    // 仅 POST 创建响应在 moderation 开启时为 true，供 SDK 展示「待审核」而非乐观插入（H-6）
+    let pending = m.status == "pending";
     CommentPublicResponse {
         avatar: derive_avatar(&m.qq_avatar, &m.mail, &config.avatar_cdn),
         id: m.id,
@@ -617,6 +622,7 @@ fn public_dto_from_model(m: comments::Model, config: &CommentConfig) -> CommentP
         rid: m.rid,
         inserted_at: m.inserted_at,
         ua_summary,
+        pending,
     }
 }
 

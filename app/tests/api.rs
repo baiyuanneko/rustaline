@@ -628,6 +628,10 @@ async fn comment_list_isolation_and_status() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["count"], 1);
     assert_eq!(body["roots"][0]["comment"], "A1");
+    assert_eq!(
+        body["roots"][0]["pending"], false,
+        "listed comments are approved"
+    );
 
     let (_, body) = call(
         &app,
@@ -656,6 +660,10 @@ async fn comment_reply_tree() {
     let app = build_app(None, false).await;
 
     let (_, body) = call(&app, submit_comment_req("/tree", "root")).await;
+    assert_eq!(
+        body["pending"], false,
+        "moderation off: create response must not flag pending"
+    );
     let root_id = body["id"].as_str().unwrap().to_owned();
 
     let (status, body) = call(
@@ -719,7 +727,11 @@ async fn comment_moderation_flow() {
     })
     .await;
 
-    call(&app, submit_comment_req("/mod", "pending comment")).await;
+    let (_, body) = call(&app, submit_comment_req("/mod", "pending comment")).await;
+    assert_eq!(
+        body["pending"], true,
+        "moderation on: create response must flag pending"
+    );
     let (_, body) = call(
         &app,
         json_request("GET", "/api/v1/comments?url=%2Fmod", None, None),
@@ -1946,6 +1958,70 @@ async fn captcha_config_endpoint_reflects_switches() {
     assert_eq!(body["image"]["enabled"], false);
 }
 
+/// 开关关闭后签发端点必须 404，不得继续消耗 CPU / 存储（M-2）
+#[tokio::test]
+async fn captcha_issue_endpoints_respect_switches() {
+    // 两开关全关：pow / image 都 404，config 端点仍可用（SDK 探测依赖它）
+    let app = build_app_with_comment(captcha_comment_config(false, false, |_| {})).await;
+    let (status, body) = call(&app, json_request("GET", "/api/v1/captcha/pow", None, None)).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "pow 关闭后签发应 404: {body}"
+    );
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/image", None, None),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "image 关闭后签发应 404: {body}"
+    );
+    let (status, _) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/config", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // 只开 pow：pow 端点恢复可用
+    let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
+    let (status, _) = call(&app, json_request("GET", "/api/v1/captcha/pow", None, None)).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // 只开 image：image 端点恢复可用
+    let app = build_app_with_comment(captcha_comment_config(false, true, |_| {})).await;
+    let (status, _) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/image", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+/// M-2 的 500 场景：image 关闭 + image_ttl_secs=0（validate_captcha_config 对
+/// 已关闭功能跳过 TTL 校验）。修复前会走到 SETEX ttl=0 报错返回 500；
+/// 修复后端点在触达凭证存储前即 404。
+#[tokio::test]
+async fn disabled_image_captcha_with_zero_ttl_returns_404_not_500() {
+    let app = build_app_with_comment(captcha_comment_config(false, false, |c| {
+        c.image_ttl_secs = 0;
+    }))
+    .await;
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/image", None, None),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "关闭的图形码端点应 404 而非 500: {body}"
+    );
+}
+
 #[tokio::test]
 async fn captcha_enabled_by_default() {
     // 默认 CommentConfig（不显式设置 captcha）：两种验证码都开启，缺解一律 400
@@ -2272,6 +2348,139 @@ async fn captcha_pow_replay_blocked_via_redis() {
     )
     .await;
     assert!(err.is_err(), "Redis 路径重放必须失败");
+}
+
+// ---------------------------------------------------------------------------
+// H-5 回归：图形码 Redis 路径并发消费必须原子
+// （修复前 GET -> 比对 -> DEL/TTL -> SETEX 四步无锁：一码可并发多用、
+// 并发错误只扣一次、错误请求的 SETEX 会复活已删凭证）
+// ---------------------------------------------------------------------------
+
+async fn redis_manager(url: &str) -> redis::aio::ConnectionManager {
+    redis::Client::open(url.to_string())
+        .expect("redis client")
+        .get_connection_manager()
+        .await
+        .expect("redis manager")
+}
+
+/// 签发图形码（Redis 路径）并直接从 Redis 读出答案，返回 (id, answer)
+async fn issue_redis_image(
+    mgr: &redis::aio::ConnectionManager,
+    cfg: &CaptchaConfig,
+) -> (String, String) {
+    let memory = app::services::captcha_service::CaptchaMemoryStore::new();
+    let (id, _png) =
+        app::services::captcha_service::issue_image_captcha(&Some(mgr.clone()), &memory, cfg)
+            .await
+            .expect("issue image captcha");
+    let mut conn = mgr.clone();
+    let stored: Option<String> = redis::cmd("GET")
+        .arg(format!("captcha:img:{id}"))
+        .query_async(&mut conn)
+        .await
+        .expect("read captcha record");
+    let stored = stored.expect("captcha record should exist after issue");
+    let (answer, _attempts) = stored
+        .rsplit_once(':')
+        .expect("record format answer:attempts");
+    (id, answer.to_string())
+}
+
+/// 以 Barrier 齐发的方式并发调用 verify_image，返回每个调用的 is_ok()
+async fn concurrent_image_verify(
+    mgr: redis::aio::ConnectionManager,
+    cfg: &CaptchaConfig,
+    id: &str,
+    codes: Vec<String>,
+) -> Vec<bool> {
+    let barrier = Arc::new(tokio::sync::Barrier::new(codes.len()));
+    let memory = app::services::captcha_service::CaptchaMemoryStore::new();
+    let mut handles = Vec::new();
+    for code in codes {
+        let redis = Some(mgr.clone());
+        let memory = memory.clone();
+        let cfg = cfg.clone();
+        let id = id.to_string();
+        let barrier = barrier.clone();
+        handles.push(tokio::spawn(async move {
+            barrier.wait().await;
+            app::services::captcha_service::verify_image(
+                &redis,
+                &memory,
+                &cfg,
+                Some(&id),
+                Some(&code),
+            )
+            .await
+            .is_ok()
+        }));
+    }
+    let mut out = Vec::new();
+    for h in handles {
+        out.push(h.await.expect("verify task panicked"));
+    }
+    out
+}
+
+#[tokio::test]
+async fn captcha_image_redis_concurrent_correct_single_use() {
+    let Some(redis) = spawn_redis() else {
+        eprintln!("redis-server binary not found, skipping captcha redis test");
+        return;
+    };
+    let mgr = redis_manager(&redis.url).await;
+    let cfg = captcha_comment_config(false, true, |_| {}).captcha;
+    let (id, answer) = issue_redis_image(&mgr, &cfg).await;
+
+    let results = concurrent_image_verify(mgr.clone(), &cfg, &id, vec![answer.clone(); 16]).await;
+    let ok = results.iter().filter(|r| **r).count();
+    assert_eq!(ok, 1, "同一图形码并发正确提交应恰好放行一次: {results:?}");
+
+    // 消费后再次使用必须失败（一码一用）
+    let results = concurrent_image_verify(mgr, &cfg, &id, vec![answer]).await;
+    assert_eq!(results, vec![false]);
+}
+
+#[tokio::test]
+async fn captcha_image_redis_concurrent_wrong_attempts_counted() {
+    let Some(redis) = spawn_redis() else {
+        eprintln!("redis-server binary not found, skipping captcha redis test");
+        return;
+    };
+    let mgr = redis_manager(&redis.url).await;
+    let cfg = captcha_comment_config(false, true, |c| c.image_max_attempts = 3).captcha;
+    let (id, answer) = issue_redis_image(&mgr, &cfg).await;
+
+    // 'z' 不在图形码字符集内，保证答案错误
+    let results =
+        concurrent_image_verify(mgr.clone(), &cfg, &id, vec!["zzzz".to_string(); 10]).await;
+    assert!(results.iter().all(|r| !*r), "错误答案一律不得放行");
+
+    // 并发错误猜测每次都扣次：3 次上限耗尽后正确答案也必须被拒
+    let results = concurrent_image_verify(mgr, &cfg, &id, vec![answer]).await;
+    assert_eq!(results, vec![false], "次数耗尽后正确答案也应失败");
+}
+
+#[tokio::test]
+async fn captcha_image_redis_concurrent_mixed_no_resurrect() {
+    let Some(redis) = spawn_redis() else {
+        eprintln!("redis-server binary not found, skipping captcha redis test");
+        return;
+    };
+    let mgr = redis_manager(&redis.url).await;
+    let cfg = captcha_comment_config(false, true, |c| c.image_max_attempts = 3).captcha;
+    let (id, answer) = issue_redis_image(&mgr, &cfg).await;
+
+    let mut codes = vec!["zzzz".to_string(); 5];
+    codes.extend(std::iter::repeat_n(answer.clone(), 5));
+    let results = concurrent_image_verify(mgr.clone(), &cfg, &id, codes).await;
+    let ok = results.iter().filter(|r| **r).count();
+    assert!(ok <= 1, "正确提交至多放行一次: {results:?}");
+
+    // 无论交错顺序如何，凭证最终必须被销毁（错误请求的写回不得复活已删凭证）
+    let results = concurrent_image_verify(mgr, &cfg, &id, vec![answer]).await;
+    assert_eq!(results, vec![false], "交错并发后凭证不得复活");
 }
 
 // ---------------------------------------------------------------------------

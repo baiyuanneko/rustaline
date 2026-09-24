@@ -81,14 +81,14 @@ SDK 零依赖单文件：楼中楼分页渲染（root 倒序分页 + 每楼回�
 | GET | `/api/v1/captcha/pow` | 签发 PoW 签名 challenge：`{ challenge, difficulty, ttl }`（限流 60 次/分钟/IP） |
 | GET | `/api/v1/captcha/image` | 签发图形验证码：`{ captcha_id, image: <PNG data URI>, ttl }`（限流 60 次/分钟/IP） |
 
-公共响应的 Comment 字段为 `{ id, comment, nick, link, avatar, url, pid, rid, inserted_at, ua_summary }`；`ua_summary` 是服务端解析的评论者环境摘要（如 `"Chrome 126 · Windows"`，SDK 显示为评论旁徽章），仅当 `APP_DISPLAY_COMMENTER_USER_AGENT=true` 时下发，否则恒为 `null`；原始 ua/ip/mail 绝不出现在公共响应。
+公共响应的 Comment 字段为 `{ id, comment, nick, link, avatar, url, pid, rid, inserted_at, ua_summary, pending }`；`ua_summary` 是服务端解析的评论者环境摘要（如 `"Chrome 126 · Windows"`，SDK 显示为评论旁徽章），仅当 `APP_DISPLAY_COMMENTER_USER_AGENT=true` 时下发，否则恒为 `null`；原始 ua/ip/mail 绝不出现在公共响应。`pending` 仅 POST 创建响应有意义：开启审核（`APP_COMMENT_MODERATION=true`）时为 `true`，SDK 据此展示「待审核」提示而不做乐观插入；列表/回复接口只返回 approved 评论，该字段恒为 `false`。
 
 ### 评论验证码（PoW / 图形验证码）
 
 在「IP 限流 + 蜜罐 + 审核」之外提供两层可独立开关的反机器人机制，**默认两种都开启**（防滥用优先，可用环境变量显式关闭）；两者同时开启时为 AND（两道都要过）：
 
 - **PoW（工作量证明，SHA-256 hashcash）**：SDK 提交前在浏览器后台静默求解 `SHA-256(challenge:nonce)` 前 N 个十六进制位为 0（默认难度 4，期望约 6.5 万次哈希，桌面无感、手机约 1 秒）。服务端只做一次哈希即可验证（µs 级），非对称地抬高批量机器人成本。challenge 是 **HMAC 签名的一次性令牌**：防伪造、防过期囤货（默认 10 分钟 TTL），提交时以 Redis `SET NX EX` 原子消费防重放；HTTPS 页面用浏览器原生 Web Crypto 计算，明文 HTTP 等非安全上下文自动回退到 SDK 内联的纯 JS SHA-256 实现（js-sha256，MIT）。
-- **图形验证码**：服务端用 `captcha` crate 生成 4 位去歧义字符 PNG（答案只存服务端）；用户点「发表评论」时 SDK **弹出模态框**收集输入（图片 + 输入框 + 换一张 + 确定/取消，Esc 或点遮罩取消，Enter 确认，打开期间锁页面滚动，主题跟随实例配色与明暗），图形码在点击提交时才按需拉取（不预加载，节省签发次数）。参数按可读性优先——紧裁切 168×64（字符占成品高度 44%）、仅横向低幅 Wave、轻噪声。默认 5 分钟 TTL、单码最多错 3 次、验证成功立即消费，大小写不敏感；服务端判错时自动重弹模态框并换新图。
+- **图形验证码**：服务端用 `captcha` crate 生成 4 位去歧义字符 PNG（答案只存服务端）；用户点「发表评论」时 SDK **弹出模态框**收集输入（图片 + 输入框 + 换一张 + 确定/取消，Esc 或点遮罩取消，焦点在输入框内按 Enter 确认——Enter 不做 document 级拦截，避免焦点落在「取消」「换一张」上时被误当作确认，打开期间锁页面滚动，主题跟随实例配色与明暗），图形码在点击提交时才按需拉取（不预加载，节省签发次数）。参数按可读性优先——紧裁切 168×64（字符占成品高度 44%）、仅横向低幅 Wave、轻噪声。默认 5 分钟 TTL、单码最多错 3 次、验证成功立即消费，大小写不敏感；服务端判错时自动重弹模态框并换新图。
 - 两种凭证优先存 Redis（键前缀 `captcha:pow:` / `captcha:img:`），Redis 不可达时降级为进程内内存存储。**多副本部署必须提供 Redis**，否则防重放不跨实例共享（与 IP 限流同为单进程语义）。
 - 防护定位：PoW 能淘汰「一段脚本直接 POST」的廉价机器人并逼迫代理池成本，但不抗 GPU 农场 / 僵尸网络 / 真人水军；图形码可挡住低成本脚本但可被打码平台绕过。最终防线仍是审核（`APP_COMMENT_MODERATION=true`）。
 
@@ -210,8 +210,12 @@ cargo test
 ```bash
 # 需要注入 APP_JWT_SECRET（见 .env.example，缺失即拒绝启动）；
 # 首次启动还需 APP_INITIAL_ADMIN_PASSWORD 作为管理员种子（入库后可移除）
-docker compose up --build     # app + redis，SQLite 数据在 sqlite-data 卷
+docker compose up --build     # app + redis，数据在 sqlite-data / redis-data 卷
 ```
+
+配置注入：生产 compose 通过 `env_file` 把项目 `.env` 整体传入容器，`.env` 里的所有 `APP_*` 开关（评论审核 `APP_COMMENT_MODERATION`、验证码开关、`APP_ENABLE_SWAGGER_UI` 等）都会生效。注意 Compose 本身只拿 `.env` 做 `${...}` 插值、并不会自动传给容器，靠的就是这条 `env_file` 声明。`environment` 中固定的容器内项优先级更高：数据库 / Redis 地址、日志级别默认值不会被 `.env` 里的本机开发地址覆盖。
+
+数据持久化：SQLite 落 `sqlite-data` 卷；Redis 挂 `redis-data` 卷并开启 AOF——JWT 注销黑名单与验证码防重放记录在 `down`/`up` 重建容器后保留（TTL 按剩余有效期继续倒数，崩溃至多丢 ~1s 写入），已注销 token / 已消费 PoW challenge 不会复活；`down -v` 才会连卷一起清空。
 
 换 PostgreSQL / MySQL：见 `docker-compose.yml` 顶部注释（`--build-arg CARGO_FEATURES="--no-default-features --features postgres"`）。
 

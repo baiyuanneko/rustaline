@@ -270,6 +270,39 @@ pub async fn verify_pow(
     Ok(())
 }
 
+/// 图形码校验 Lua 脚本：单脚本原子完成「读取 -> 比对 -> 删除/扣次」。
+/// 拆成多步命令（GET/DEL/TTL/SETEX）会在并发下出现一码多用、错误扣次丢失、
+/// 已删凭证被 SETEX 复活等问题（H-5）；脚本在 Redis 内单线程执行，无并发窗口。
+/// 返回 1=通过（凭证已删）；0=答案错误（已扣次或已删）；-1=凭证不存在；-2=记录损坏。
+/// 存储格式 "answer:attempts_left"，answer 仅含字母数字（冒号取最后一个，等价 rsplit_once）。
+/// 注：Lua 字符串比较非常量时间，但比对发生在 Redis 内部，
+/// 经 HTTP + 网络往返噪声后对 4 位字符无实际计时攻击价值。
+const VERIFY_IMAGE_SCRIPT: &str = r#"
+local v = redis.call('GET', KEYS[1])
+if not v then return -1 end
+local sep = v:match('^.*():')
+if not sep then return -2 end
+local answer = v:sub(1, sep - 1)
+local attempts = tonumber(v:sub(sep + 1))
+if not attempts then return -2 end
+if answer == ARGV[1] then
+    redis.call('DEL', KEYS[1])
+    return 1
+end
+if attempts <= 1 then
+    redis.call('DEL', KEYS[1])
+    return 0
+end
+-- 不重置 TTL：剩余总时长保持签发时的窗口
+local ttl = redis.call('TTL', KEYS[1])
+if ttl > 0 then
+    redis.call('SET', KEYS[1], answer .. ':' .. (attempts - 1), 'EX', ttl)
+else
+    redis.call('DEL', KEYS[1])
+end
+return 0
+"#;
+
 /// 校验并消费图形验证码。正确或尝试次数耗尽都会删除凭证。
 /// Redis 故障返回 500（fail-closed）。
 pub async fn verify_image(
@@ -291,31 +324,19 @@ pub async fn verify_image(
     if let Some(conn) = redis {
         let mut conn = conn.clone();
         let key = format!("captcha:img:{id}");
-        let stored: Option<String> = conn.get(&key).await?;
-        let stored = stored.ok_or_else(bad_captcha)?;
-        // 存储格式 "answer:attempts_left"，answer 仅含字母数字
-        let (answer, attempts_left) = stored
-            .rsplit_once(':')
-            .and_then(|(a, n)| n.parse::<u32>().ok().map(|n| (a.to_owned(), n)))
-            .ok_or_else(|| AppError::internal_msg("corrupted captcha record"))?;
-
-        let matched = answer.as_bytes().ct_eq(code.as_bytes()).unwrap_u8() == 1;
-        if matched {
-            let _: i64 = conn.del(&key).await?;
-            return Ok(());
-        }
-        if attempts_left <= 1 {
-            let _: i64 = conn.del(&key).await?;
-        } else {
-            // 不重置 TTL：剩余总时长保持签发时的窗口
-            let ttl: i64 = conn.ttl(&key).await?;
-            if ttl > 0 {
-                let _: () = conn
-                    .set_ex(&key, format!("{answer}:{}", attempts_left - 1), ttl as u64)
-                    .await?;
-            }
-        }
-        return Err(bad_captcha());
+        let result: i64 = redis::cmd("EVAL")
+            .arg(VERIFY_IMAGE_SCRIPT)
+            .arg(1)
+            .arg(&key)
+            .arg(&code)
+            .query_async(&mut conn)
+            .await?;
+        return match result {
+            1 => Ok(()),
+            -2 => Err(AppError::internal_msg("corrupted captcha record")),
+            // 0 = 答案错误，-1 = 凭证不存在，对外同一错误不区分
+            _ => Err(bad_captcha()),
+        };
     }
 
     // 内存降级路径：单次加锁完成「检查 -> 比对 -> 扣次/删除」
