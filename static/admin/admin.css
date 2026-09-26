@@ -188,6 +188,24 @@ body {
   margin: 0;
 }
 
+.admin-footer {
+  max-width: 1320px;
+  padding: 20px 12px 32px;
+  border-top: 1px solid rgb(var(--mdui-color-outline-variant));
+  color: rgb(var(--mdui-color-on-surface-variant));
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.admin-footer a {
+  color: rgb(var(--mdui-color-primary));
+  text-decoration: none;
+}
+
+.admin-footer a:hover {
+  text-decoration: underline;
+}
+
 .page-head {
   display: flex;
   align-items: flex-start;
@@ -213,6 +231,25 @@ body {
   margin-top: 4px;
   font-size: 14px;
   color: rgb(var(--mdui-color-on-surface-variant));
+}
+
+/* ---- 提示横幅（操作指引类信息，如导入页数据来源说明） ---- */
+.notice-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: var(--mdui-shape-corner-medium, 12px);
+  background: rgb(var(--mdui-color-secondary-container));
+  color: rgb(var(--mdui-color-on-secondary-container));
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.notice-banner > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 /* ---- 卡片 ---- */

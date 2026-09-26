@@ -219,6 +219,7 @@
     footer nav { display: flex; gap: 18px; flex-wrap: wrap; }
     footer a { color: rgb(var(--mdui-color-primary)); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
+    .footer__thanks { width: 100%; }
   </style>
 </head>
 <body>
@@ -336,6 +337,9 @@
             <a href="/swagger-ui/" target="_blank" data-i18n="footer.api">API 文档</a>
             <a href="/health" target="_blank" data-i18n="footer.health">健康检查</a>
           </nav>
+          <div class="footer__thanks">
+            <span data-i18n="footer.thanksPrefix">Special thanks to </span><a href="https://ouyangqiqi.cn/" target="_blank" rel="noopener">欧阳淇淇</a><span>, </span><a href="https://github.com/HyacinthHaru" target="_blank" rel="noopener">HyacinthHaru</a><span data-i18n="footer.thanksSuffix"> and more for help to the development of Rustaline!</span>
+          </div>
         </footer>
       </div>
     </mdui-layout-main>

@@ -12,17 +12,85 @@ const taskState = {
 
 export async function render(container) {
   container.appendChild(pageHead());
-  container.appendChild(buildDropzoneCard());
-  container.appendChild(buildPasteCard());
-  container.appendChild(buildProgressCard());
-  container.appendChild(buildReportCard());
+
+  const tabs = el("mdui-tabs", { value: "query", style: { marginTop: "16px" } });
+  tabs.appendChild(el("mdui-tab", { value: "query" }, t("import.tabQuery")));
+  tabs.appendChild(el("mdui-tab", { value: "archive" }, t("import.tabArchive")));
+
+  const queryPanel = el("mdui-tab-panel", { slot: "panel", value: "query" });
+  queryPanel.appendChild(buildHint(t("import.queryHint")));
+  queryPanel.appendChild(buildDropzoneCard());
+  queryPanel.appendChild(buildPasteCard());
+  queryPanel.appendChild(buildProgressCard());
+  queryPanel.appendChild(buildReportCard());
+  tabs.appendChild(queryPanel);
+
+  const archivePanel = el("mdui-tab-panel", { slot: "panel", value: "archive" });
+  archivePanel.appendChild(buildHint(t("import.archiveHint")));
+  archivePanel.appendChild(buildArchiveCard());
+  tabs.appendChild(archivePanel);
+
+  container.appendChild(tabs);
+}
+
+function buildHint(text) {
+  const banner = el("div", { class: "notice-banner" });
+  banner.appendChild(icon("info"));
+  banner.appendChild(el("span", { text }));
+  return banner;
+}
+
+// ---- 数据存储导出（tar.gz / jsonl）：功能占位 ----
+function buildArchiveCard() {
+  const card = el("mdui-card", { class: "page-card" });
+  const body = el("div", { class: "page-card__body" });
+
+  const dz = el("div", { class: "dropzone", tabIndex: 0, role: "button", attrs: { "aria-label": t("import.dropzoneLabel") } });
+  dz.appendChild(el("div", { class: "dropzone__icon" }, icon("upload")));
+  dz.appendChild(el("div", { class: "dropzone__title", text: t("import.archiveDropTitle") }));
+  const showComingSoon = () => toastInfo(t("import.archiveComingSoon"));
+  dz.addEventListener("click", showComingSoon);
+  dz.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      showComingSoon();
+    }
+  });
+  dz.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dz.classList.remove("is-dragover");
+    showComingSoon();
+  });
+  ["dragenter", "dragover"].forEach((ev) =>
+    dz.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dz.classList.add("is-dragover");
+    })
+  );
+  ["dragleave"].forEach((ev) =>
+    dz.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dz.classList.remove("is-dragover");
+    })
+  );
+  body.appendChild(dz);
+  card.appendChild(body);
+  return card;
 }
 
 function pageHead() {
   const head = el("div", { class: "page-head" });
   const titles = el("div", { class: "page-head__titles" });
   titles.appendChild(el("h1", { class: "page-title", text: t("import.title") }));
-  titles.appendChild(el("div", { class: "page-subtitle", text: t("import.subtitle") }));
+  titles.appendChild(
+    el("div", {
+      class: "page-subtitle",
+      text: t("import.idempotentHint"),
+    })
+  );
   head.appendChild(titles);
   return head;
 }
@@ -34,9 +102,9 @@ function buildDropzoneCard() {
   const dz = el("div", { class: "dropzone", tabIndex: 0, role: "button", attrs: { "aria-label": t("import.dropzoneLabel") } });
   dz.appendChild(el("div", { class: "dropzone__icon" }, icon("upload")));
   dz.appendChild(el("div", { class: "dropzone__title", text: t("import.dropzoneTitle") }));
-  dz.appendChild(el("div", { class: "dropzone__hint", text: t("import.dropzoneHint", { batch: BATCH_SIZE }) }));
+  dz.appendChild(el("div", { class: "dropzone__hint", text: t("import.dropzoneHint") }));
 
-  const fileInput = el("input", { type: "file", accept: ".json,application/json,text/json,text/plain", style: { display: "none" } });
+  const fileInput = el("input", { type: "file", multiple: true, accept: ".json,application/json,text/json,text/plain", style: { display: "none" } });
   body.appendChild(fileInput);
 
   dz.addEventListener("click", () => fileInput.click());
@@ -62,12 +130,12 @@ function buildDropzoneCard() {
     })
   );
   dz.addEventListener("drop", (e) => {
-    const file = e.dataTransfer?.files?.[0];
-    if (file) handleFile(file);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) handleFiles(files);
   });
   fileInput.addEventListener("change", () => {
-    const file = fileInput.files?.[0];
-    if (file) handleFile(file);
+    const files = Array.from(fileInput.files || []);
+    if (files.length) handleFiles(files);
     fileInput.value = "";
   });
   body.appendChild(dz);
@@ -192,38 +260,49 @@ function buildReportCard() {
   return card;
 }
 
-// ---- 文件处理 ----
-function handleFile(file) {
-  if (!ACCEPT_TYPES.includes(file.type) && !/\.(json|txt)$/i.test(file.name)) {
-    const msg = t("import.unsupportedTypeMsg", { type: file.type || t("import.unknownType") });
-    setStatus(msg, true);
-    toastErr(t("import.unsupportedType"), msg);
-    return;
+// ---- 文件处理（支持多选：多个文件合并为一次导入） ----
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error(t("import.fileReaderError")));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+async function handleFiles(files) {
+  const totalSize = files.reduce((s, f) => s + f.size, 0);
+  setStatus(t("import.reading", { name: files.map((f) => f.name).join(", "), size: formatSize(totalSize) }));
+
+  const items = [];
+  let failed = 0;
+  for (const file of files) {
+    if (!ACCEPT_TYPES.includes(file.type) && !/\.(json|txt)$/i.test(file.name)) {
+      failed += 1;
+      continue;
+    }
+    try {
+      const data = JSON.parse(await readFileText(file));
+      const parsed = normalizeResults(data);
+      if (parsed.length === 0) {
+        failed += 1;
+        continue;
+      }
+      items.push(...parsed);
+    } catch {
+      failed += 1;
+    }
   }
 
-  setStatus(t("import.reading", { name: file.name, size: formatSize(file.size) }));
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const data = JSON.parse(String(reader.result));
-      const items = normalizeResults(data);
-      if (items.length === 0) {
-        setStatus(t("import.emptyResult"), true);
-        toastErr(t("import.noImportable"), t("import.noResultsMsg"));
-        return;
-      }
-      setStatus(t("import.parsed", { n: items.length }));
-      stageImport(items, file.name);
-    } catch (err) {
-      setStatus(t("import.parseErrorMsg", { msg: err.message }), true);
-      toastErr(t("import.parseFailed"), err.message);
-    }
-  };
-  reader.onerror = () => {
-    setStatus(t("import.readFailed"), true);
-    toastErr(t("import.readFailed"), t("import.fileReaderError"));
-  };
-  reader.readAsText(file, "utf-8");
+  if (items.length === 0) {
+    setStatus(t("import.parseErrorMsg", { msg: t("import.noResultsMsg") }), true);
+    toastErr(t("import.noImportable"), t("import.noResultsMsg"));
+    return;
+  }
+  const source = files.length === 1 ? files[0].name : t("import.multiSource", { n: files.length });
+  stageImport(items, source);
+  // stageImport 会覆写状态行，在其后补上解析失败文件数
+  setStatus(t("import.parsed", { n: items.length }) + (failed > 0 ? t("import.someFailed", { n: failed }) : ""));
 }
 
 function setStatus(msg, isError) {

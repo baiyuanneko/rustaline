@@ -45,6 +45,8 @@
 
       'footer.madeWith': 'Made with ♥️ by ',
       'footer.license': ', BSD 3-Clause "New" or "Revised" License Licensed.',
+      'footer.thanksPrefix': 'Special thanks to ',
+      'footer.thanksSuffix': ' and more for help to the development of Rustaline!',
       'footer.api': 'API 文档',
       'footer.health': '健康检查',
 
@@ -87,6 +89,8 @@
 
       'footer.madeWith': 'Made with ♥️ by ',
       'footer.license': ', BSD 3-Clause "New" or "Revised" License Licensed.',
+      'footer.thanksPrefix': 'Special thanks to ',
+      'footer.thanksSuffix': ' and more for help to the development of Rustaline!',
       'footer.api': 'API docs',
       'footer.health': 'Health check',
 

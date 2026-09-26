@@ -75,6 +75,12 @@ const DICTS = {
     "nav.swaggerDisabledTitle": "Swagger UI 已禁用",
     "nav.swaggerDisabled": "Swagger UI 已被环境变量禁用，API 文档不可访问",
 
+    // ---- 页脚 ----
+    "footer.madeWith": "Made with ♥️ by ",
+    "footer.license": ", BSD 3-Clause \"New\" or \"Revised\" License Licensed.",
+    "footer.thanksPrefix": "Special thanks to ",
+    "footer.thanksSuffix": " and more for help to the development of Rustaline!",
+
     // ---- 外观 / 偏好 ----
     "prefs.openLabel": "外观设置",
     "prefs.title": "外观",
@@ -198,10 +204,20 @@ const DICTS = {
 
     // ---- Valine 导入 ----
     "import.title": "Valine 数据导入",
-    "import.subtitle": "支持 LeanCloud 导出 JSON：分批上传、实时进度、汇总报告",
+    "import.idempotentHint": "提示：objectId 相同的评论不会被重复导入",
+    "import.tabQuery": "导入已保存的查询结果",
+    "import.tabArchive": "导入 Leancloud 数据存储导出数据",
+    "import.queryHint":
+      "Leancloud 应用 -> 数据存储 -> 结构化数据 -> 左边 Class 选择 Comment -> 右边表格右上方点击「下载查询结果」图标按钮 -> JSON。注意此种方式每操作一次只能导出 1000 条数据，若超出 1000 条数据请手动分批导出为多个文件，然后在此界面依次上传导入。",
+    "import.archiveHint":
+      "Leancloud 应用 -> 数据存储 -> 数据导出 -> 勾选限定 Class 为 Comment -> 点击导出 -> 下载导出的 tar.gz 文件 -> 解压后取出其中的 Comment 相关 jsonl 文件在此界面上传",
     "import.dropzoneLabel": "选择或拖入 JSON 文件",
+    "import.archiveDropTitle": "点击选择 Comment 的 jsonl 文件，或拖入此处",
+    "import.archiveComingSoon": "目前还未实现，Coming Soon...",
     "import.dropzoneTitle": "点击选择 JSON 文件，或拖入此处",
-    "import.dropzoneHint": ({ batch }) => `支持 .json；每批 ${batch} 条顺序上传，可处理十万级数据`,
+    "import.dropzoneHint": "支持 .json 文件，可多选或一次拖入多个",
+    "import.multiSource": ({ n }) => `${n} 个文件`,
+    "import.someFailed": ({ n }) => `，${n} 个文件无法解析已跳过`,
     "import.pasteTitle": "或粘贴 JSON 内容",
     "import.jsonContent": "JSON 内容",
     "import.parse": "解析粘贴内容",
@@ -213,15 +229,11 @@ const DICTS = {
     "import.parseErrorPos": ({ pos, msg }) => `位置 ${pos}：${msg}`,
     "import.errorLine": ({ line }) => `行 ${line}`,
     "import.pasteSource": "粘贴内容",
-    "import.unsupportedType": "文件类型不支持",
-    "import.unsupportedTypeMsg": ({ type }) => `文件类型 ${type} 不被支持，请选择 JSON 文件`,
-    "import.unknownType": "未知",
     "import.reading": ({ name, size }) => `正在读取 ${name}（${size}）…`,
     "import.noImportable": "无可导入数据",
     "import.noResultsMsg": "JSON 中未找到 results 数组或顶层并非数组",
     "import.parsed": ({ n }) => `已解析 ${n} 条记录，准备导入…`,
     "import.parseErrorMsg": ({ msg }) => `解析失败：${msg}`,
-    "import.readFailed": "文件读取失败",
     "import.fileReaderError": "FileReader 错误",
     "import.parseDone": "解析完成",
     "import.batchPlan": ({ total, batches, source }) => `共 ${total} 条，将分 ${batches} 批导入（来源：${source}）`,
@@ -363,6 +375,12 @@ const DICTS = {
     "nav.swaggerDisabledTitle": "Swagger UI disabled",
     "nav.swaggerDisabled": "Swagger UI has been disabled by environment variable; API docs are unavailable",
 
+    // ---- footer ----
+    "footer.madeWith": "Made with ♥️ by ",
+    "footer.license": ", BSD 3-Clause \"New\" or \"Revised\" License Licensed.",
+    "footer.thanksPrefix": "Special thanks to ",
+    "footer.thanksSuffix": " and more for help to the development of Rustaline!",
+
     // ---- appearance / prefs ----
     "prefs.openLabel": "Appearance",
     "prefs.title": "Appearance",
@@ -487,11 +505,20 @@ const DICTS = {
 
     // ---- Valine import ----
     "import.title": "Valine Data Import",
-    "import.subtitle": "Import LeanCloud-exported JSON: batched upload, live progress, summary report",
+    "import.idempotentHint": "Note: comments with the same objectId are not imported again",
+    "import.tabQuery": "Import saved query results",
+    "import.tabArchive": "Import LeanCloud data export",
+    "import.queryHint":
+      'LeanCloud app -> Data Storage -> Structured Data -> select "Comment" under Class on the left -> click the "Download query results" icon button at the top-right of the table -> JSON. Note: each export is limited to 1000 records; if you have more, export manually in batches as multiple files and upload them here one by one.',
+    "import.archiveHint":
+      'LeanCloud app -> Data Storage -> Data Export -> check "Limit classes to Comment" -> Export -> download the tar.gz file -> extract the Comment .jsonl file and upload it here',
     "import.dropzoneLabel": "Select or drop a JSON file",
+    "import.archiveDropTitle": "Click to choose the Comment .jsonl file, or drop it here",
+    "import.archiveComingSoon": "Not implemented yet, Coming Soon...",
     "import.dropzoneTitle": "Click to choose a JSON file, or drop it here",
-    "import.dropzoneHint": ({ batch }) =>
-      `.json supported; uploads in sequential batches of ${batch}; handles 100k+ records`,
+    "import.dropzoneHint": ".json files; multiple selection or multi-file drop supported",
+    "import.multiSource": ({ n }) => `${n} files`,
+    "import.someFailed": ({ n }) => `, skipped ${n} file(s) that failed to parse`,
     "import.pasteTitle": "Or paste JSON",
     "import.jsonContent": "JSON content",
     "import.parse": "Parse pasted content",
@@ -503,15 +530,11 @@ const DICTS = {
     "import.parseErrorPos": ({ pos, msg }) => `at ${pos}: ${msg}`,
     "import.errorLine": ({ line }) => `line ${line}`,
     "import.pasteSource": "pasted content",
-    "import.unsupportedType": "Unsupported file type",
-    "import.unsupportedTypeMsg": ({ type }) => `File type ${type} is not supported; choose a JSON file`,
-    "import.unknownType": "unknown",
     "import.reading": ({ name, size }) => `Reading ${name} (${size})…`,
     "import.noImportable": "Nothing to import",
     "import.noResultsMsg": "No results array found and top level is not an array",
     "import.parsed": ({ n }) => `Parsed ${n} records, ready to import…`,
     "import.parseErrorMsg": ({ msg }) => `Parse failed: ${msg}`,
-    "import.readFailed": "Failed to read file",
     "import.fileReaderError": "FileReader error",
     "import.parseDone": "Parsed",
     "import.batchPlan": ({ total, batches, source }) =>
