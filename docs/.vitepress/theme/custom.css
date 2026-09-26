@@ -1,0 +1,158 @@
+/* Material Design 3 令牌映射
+ * 种子色 #2196f3（与 rustaline SDK / 管理面板一致），派生 VitePress 默认主题变量。
+ * 结构件圆角 12px / 16px（M3 shape），阴影为柔和 elevation。
+ */
+
+:root {
+  /* M3 light scheme */
+  --vp-c-brand-1: #1565c0;
+  --vp-c-brand-2: #1e88e5;
+  --vp-c-brand-3: #2196f3;
+  --vp-c-brand-soft: rgba(33, 150, 243, 0.12);
+
+  --vp-c-tip-1: #1565c0;
+  --vp-c-tip-soft: rgba(33, 150, 243, 0.12);
+
+  /* M3 shape + elevation */
+  --rs-radius-s: 8px;
+  --rs-radius-m: 12px;
+  --rs-radius-l: 16px;
+  --rs-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --rs-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.dark {
+  /* M3 dark scheme */
+  --vp-c-brand-1: #a8c7fa;
+  --vp-c-brand-2: #8ab4f8;
+  --vp-c-brand-3: #669df6;
+  --vp-c-brand-soft: rgba(138, 180, 248, 0.16);
+
+  --vp-c-tip-1: #a8c7fa;
+  --vp-c-tip-soft: rgba(138, 180, 248, 0.16);
+}
+
+/* ---- 按钮 ---- */
+.VPButton {
+  border-radius: 999px !important;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.VPButton.brand {
+  box-shadow: var(--rs-shadow-1);
+}
+
+.VPButton.brand:hover {
+  box-shadow: var(--rs-shadow-2);
+}
+
+/* ---- 正文元素 ---- */
+.vp-doc a {
+  font-weight: 500;
+}
+
+.vp-doc blockquote {
+  border-left: 3px solid var(--vp-c-brand-3);
+  border-radius: 0 var(--rs-radius-s) var(--rs-radius-s) 0;
+  background: var(--vp-c-brand-soft);
+  padding: 12px 16px;
+}
+
+.vp-doc .custom-block {
+  border-radius: var(--rs-radius-m);
+  border-left: none;
+  padding: 14px 18px;
+  box-shadow: var(--rs-shadow-1);
+}
+
+.vp-doc div[class*='language-'] {
+  border-radius: var(--rs-radius-m);
+  box-shadow: var(--rs-shadow-1);
+}
+
+.vp-doc :not(pre) > code {
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.vp-doc table {
+  border-radius: var(--rs-radius-m);
+  overflow: hidden;
+  box-shadow: var(--rs-shadow-1);
+}
+
+.vp-doc th,
+.vp-doc td {
+  border: none;
+}
+
+/* ---- 首页 features 卡片 ---- */
+.VPFeatures .item {
+  border-radius: var(--rs-radius-l);
+}
+
+.VPFeatures .VPFeature {
+  border-radius: var(--rs-radius-l);
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: var(--rs-shadow-1);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.VPFeatures .VPFeature:hover {
+  box-shadow: var(--rs-shadow-2);
+  transform: translateY(-2px);
+}
+
+.VPFeatures .icon {
+  border-radius: var(--rs-radius-s);
+}
+
+/* ---- 导航 / 侧边栏 ---- */
+.VPNavBarMenuLink,
+.VPSidebarItem .item {
+  border-radius: 999px;
+}
+
+/* ---- 首页底部（抄自演示页 static/index.html footer） ---- */
+.rs-home-footer {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+  border-top: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+}
+
+.rs-home-footer__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rs-home-footer nav {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.rs-home-footer a {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+}
+
+.rs-home-footer a:hover {
+  text-decoration: underline;
+}
+
+.rs-home-footer__thanks {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* ---- mdui 组件在正文中的间距 ---- */
+.vp-doc mdui-button,
+.vp-doc mdui-fab {
+  margin: 4px 8px 4px 0;
+}

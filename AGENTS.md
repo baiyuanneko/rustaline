@@ -22,6 +22,11 @@ bynrust26/
 │       └── js/views/     # login / dashboard / comments / import / settings
 ├── migration/            # sea-orm-migration 独立 crate（CLI + Migrator）
 │   └── src/m*_*.rs       # 迁移文件，按时间戳命名并注册进 lib.rs 的 Migrator
+├── docs/                 # VitePress 文档站（GitHub Pages 部署，base=/rustaline/；独立 npm 工程，不参与 cargo）
+│   ├── package.json      # 依赖 mdui@2.1.5（与 vendor 版本一致，npm 引入无需 vendor）+ vitepress
+│   ├── .vitepress/       # config.ts（base / zh-CN / isCustomElement 声明 mdui-* 自定义元素）+ theme（extend 默认主题 + M3 令牌 custom.css）
+│   └── *.md              # 首页 + 示例页（guide/quick-start、comment/sdk）
+├── .github/workflows/    # docs.yml：push dev 分支构建 docs/ 并发布 GitHub Pages
 └── app/                  # 应用 crate（bin 名 bynrust26，lib 名 app）
     ├── src/
     │   ├── main.rs       # 启动流程与优雅退出（into_make_service_with_connect_info 注入客户端 IP）
@@ -67,6 +72,7 @@ JWT 密钥启动时强制校验（`config.rs::validate_jwt_secret`，在 main.rs
   5. 全量跑一遍主页 / 管理面板的 Playwright 回归；
   6. 更新 README 与本文件中的版本号。
 - 校验：`cd static/vendor/mdui && sha256sum -c SHA256SUMS`。
+- 注意：vendor 仅服务于 Rust 应用（无构建步骤）。`docs/` 文档站直接 npm 依赖 `mdui`，升级 vendor 版本时同步改 `docs/package.json` 并跑一遍文档站明暗两种模式的回归。
 
 ## 构建 / 测试命令
 
@@ -77,6 +83,8 @@ cargo clippy --all-targets -- -D warnings     # lint，提交前必须通过
 cargo fmt                                     # 格式化（rustfmt.toml: edition 2024）
 cargo run -p app                              # 本地运行
 cargo run -p migration -- <up|down|status>    # 手动迁移（读 DATABASE_URL / .env）
+cd docs && npm run docs:dev                  # 文档站本地预览（首次先 npm install）
+cd docs && npm run docs:build                # 文档站构建（产物 .vitepress/dist，base=/rustaline/）
 ```
 
 DB 切换：`--no-default-features --features postgres|mysql`（app 与 migration 的 feature 同名联动）。
