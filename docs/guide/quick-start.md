@@ -1,39 +1,43 @@
-# 快速开始
+# 快速上手
 
-rustaline 是一个 Rust Web 项目（axum 0.8 + sea-orm 2.0，默认 SQLite，可切换 PostgreSQL / MySQL），内置自托管评论系统。
+后端部署后，任意静态页面引入 SDK + 两行初始化即可（`server` 填你的 rustaline 服务地址）：
 
-## Docker 运行（推荐）
+```html
+<!-- ① 引入 SDK -->
+<script src="https://你部署的评论服务域名/sdk/rustaline.js"></script>
 
-```bash
-docker compose -f docker-compose.dev.yml up -d
+<!-- ② 挂载点 + 初始化 -->
+<div id="comments"></div>
+<script>
+  new Rustaline({
+    el: '#comments',
+    server: 'https://你部署的评论服务域名',  // rustaline 服务地址
+    url: location.pathname,                 // 文章标识，默认当前路径
+    lang: 'auto',                           // 'auto'（跟随浏览器）| 'zh-CN' | 'en'
+    colorPattern: '#2196f3',                // Material 3 种子色，派生整套配色
+    darkMode: 'auto',                       // 'auto'（跟随系统）| 'light' | 'dark'
+  });
+</script>
 ```
 
-首次需要构建镜像并编译，较慢。容器内运行 cargo-watch，保存代码即自动重编译并重启。
+## 常用参数
 
-## 本地运行
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `el` | — | 挂载点选择器（必填） |
+| `server` | `''` | rustaline 服务地址 |
+| `url` | `location.pathname` | 文章标识，同一篇文章的评论按它聚合 |
+| `lang` | `'auto'` | 界面语言，也支持传入字典对象覆盖文案 |
+| `colorPattern` | `'#2196f3'` | Material 3 种子色 |
+| `darkMode` | `'auto'` | 明暗模式 |
 
-```bash
-cp .env.example .env
-docker compose -f docker-compose.dev.yml up -d redis
-cargo run -p app
-```
+## 特性
 
-启动后：
+- 楼中楼分页渲染（顶层倒序分页 + 每楼回复预览 + 按需展开）
+- 头像推导：QQ 头像 > gravatar > 默认 SVG
+- 评论正文 Markdown 子集（链接、图片、粗斜体、删除线、行内代码），DOM 构建渲染，无 XSS 面
+- 可选 PoW / 图形验证码反垃圾，由服务端开关控制
 
-- 评论演示页：`http://localhost:8080/`
-- 管理面板：`http://localhost:8080/admin/`
-- Swagger UI：`http://localhost:8080/swagger-ui/`
-- 健康检查：`curl http://localhost:8080/health`
-
-## 界面组件示例
-
-文档站集成了与演示页、管理面板同款的 mdui（Material 3 Web Components）：
-
-<mdui-button variant="filled">Filled</mdui-button>
-<mdui-button variant="tonal">Tonal</mdui-button>
-<mdui-button variant="outlined">Outlined</mdui-button>
-<mdui-button variant="text">Text</mdui-button>
-
-::: tip 主题
-组件配色由种子色 `#2196f3` 派生，明暗模式跟随页面右上角的切换。
+::: warning 时区
+服务端时间序列化为 UTC 朴素时间，SDK 会按 UTC 解析显示，无需额外处理。
 :::

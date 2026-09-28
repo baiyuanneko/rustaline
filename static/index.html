@@ -258,7 +258,7 @@
               <div class="code__dots"><span></span><span></span><span></span></div>
               <span class="code__file">your-post.html</span>
             </div>
-<pre><span class="tok-c" data-i18n="qs.code1">&lt;!-- ① 引入 SDK（同源部署，或填完整 URL 跨域调用）--&gt;</span>
+<pre><span class="tok-c" data-i18n="qs.code1">&lt;!-- ① 引入 SDK（从 rustaline 服务加载）--&gt;</span>
 <span class="tok-t">&lt;script</span> src=<span class="tok-s">"/sdk/rustaline.js"</span><span class="tok-t">&gt;&lt;/script&gt;</span>
 
 <span class="tok-c" data-i18n="qs.code2">&lt;!-- ② 挂载点 + 初始化 --&gt;</span>
@@ -266,7 +266,7 @@
 <span class="tok-t">&lt;script&gt;</span>
   <span class="tok-k">new</span> Rustaline({
     el: <span class="tok-s">'#comments'</span>,                     <span class="tok-c" data-i18n="qs.codeEl">// 挂载点（CSS 选择器或 DOM 元素）</span>
-    server: <span class="tok-s">''</span>,                         <span class="tok-c" data-i18n="qs.code3">// 留空 = 同源；可填 https://api.example.com</span>
+    server: <span class="tok-s">''</span>,                         <span class="tok-c" data-i18n="qs.code3">// rustaline 服务地址；演示页与后端同域故留空，独立部署必填</span>
     url: location.pathname,             <span class="tok-c" data-i18n="qs.code4">// 文章标识，默认当前路径</span>
     lang: <span class="tok-s">'auto'</span>,                        <span class="tok-c" data-i18n="qs.codeLang">// 语言：'auto'（跟随浏览器）| 'zh-CN' | 'en'，或自定义字典</span>
     placeholder: <span class="tok-s" data-i18n="qs.codePlaceholder">'说点什么吧…'</span>,
@@ -338,7 +338,7 @@
             <a href="/health" target="_blank" data-i18n="footer.health">健康检查</a>
           </nav>
           <div class="footer__thanks">
-            <span data-i18n="footer.thanksPrefix">Special thanks to </span><a href="https://ouyangqiqi.cn/" target="_blank" rel="noopener">欧阳淇淇</a><span>, </span><a href="https://github.com/HyacinthHaru" target="_blank" rel="noopener">HyacinthHaru</a><span data-i18n="footer.thanksSuffix"> and more for help to the development of Rustaline!</span>
+            <span data-i18n="footer.thanksPrefix">Special thanks to </span><a href="https://ouyangqiqi.cn/" target="_blank" rel="noopener">欧阳淇淇</a><span>, </span><a href="https://github.com/HyacinthHaru" target="_blank" rel="noopener">HyacinthHaru</a><span data-i18n="footer.thanksMore"> and more</span> (see <a href="https://baiyuanneko.github.io/rustaline/thanks" target="_blank" rel="noopener">full list</a>)<span data-i18n="footer.thanksSuffix"> for help to the development of Rustaline!</span>
           </div>
         </footer>
       </div>

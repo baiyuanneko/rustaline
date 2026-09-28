@@ -208,10 +208,11 @@ pub async fn login_rate_limit_middleware(
 }
 
 /// 取客户端 IP：
-/// - `trust_xff = true`（反代部署，server.trust_xff）：取 X-Forwarded-For **最右侧**
+/// - `trust_xff = true`（默认，反代部署，server.trust_xff）：取 X-Forwarded-For **最右侧**
 ///   可解析条目 —— 标准反代会把真实客户端 IP 追加到链尾，取首项会被客户端伪造。
 ///   XFF 缺失或全部解析失败时回退 ConnectInfo 对端 IP。
-/// - `trust_xff = false`（默认）：返回 ConnectInfo 对端 IP，忽略 XFF（防伪造）；
+/// - `trust_xff = false`：返回 ConnectInfo 对端 IP，忽略 XFF（防伪造）；适用于 app
+///   可被外部直连、不经反代的部署，否则客户端可伪造 XFF 绕过限流。
 ///   无 ConnectInfo 的测试路径（oneshot）回退取 XFF 首项，保持既有集成测试语义。
 pub fn extract_client_ip(headers: &HeaderMap, ext: &Extensions, trust_xff: bool) -> Option<IpAddr> {
     let peer = ext.get::<ConnectInfo<SocketAddr>>().map(|ci| ci.0.ip());
@@ -274,7 +275,7 @@ mod tests {
         ext
     }
 
-    /// 默认（trust_xff=false）：ConnectInfo 对端 IP 优先，伪造的 XFF 被忽略
+    /// trust_xff=false：ConnectInfo 对端 IP 优先，伪造的 XFF 被忽略
     #[test]
     fn untrusted_mode_ignores_xff() {
         let headers = headers_with_xff("203.0.113.9");
@@ -285,7 +286,7 @@ mod tests {
         );
     }
 
-    /// 默认模式 + 无 ConnectInfo（oneshot 测试路径）：回退取 XFF 首项（既有语义）
+    /// 关闭 XFF 信任 + 无 ConnectInfo（oneshot 测试路径）：回退取 XFF 首项（既有语义）
     #[test]
     fn untrusted_mode_falls_back_to_xff_without_connect_info() {
         let headers = headers_with_xff("203.0.113.9, 10.0.0.1");

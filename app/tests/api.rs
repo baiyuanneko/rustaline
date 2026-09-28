@@ -2567,7 +2567,7 @@ async fn trust_xff_true_buckets_rate_limit_by_forwarded_ip() {
     );
 }
 
-/// trust_xff=false（默认）：XFF 一律忽略，全部请求按对端 IP（127.0.0.1）共桶，
+/// trust_xff=false（直连部署）：XFF 一律忽略，全部请求按对端 IP（127.0.0.1）共桶，
 /// 伪造 XFF 无法绕过限流
 #[tokio::test]
 async fn trust_xff_false_ignores_forwarded_header() {

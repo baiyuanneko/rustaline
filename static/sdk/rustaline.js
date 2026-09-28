@@ -184,7 +184,7 @@
 
   var DEFAULTS = {
     el: '#rustaline',                                  // 挂载点（选择器或元素）
-    server: '',                                        // 后端基地址，'' = 同源
+    server: '',                                        // 后端基地址
     url: '',                                           // 文章标识，'' = location.pathname
     placeholder: '',                                   // 评论框占位文案，'' = 跟随语言字典 commentPlaceholder
     lang: 'auto',                                      // 'auto' | 'zh-CN' | 'en' | 自定义字典对象

@@ -69,16 +69,22 @@ services:
       APP_INITIAL_ADMIN_PASSWORD: ${APP_INITIAL_ADMIN_PASSWORD:-}
       # 日志级别可由 .env 覆盖（默认 info）
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
-      # 反向代理部署（反代加入本 compose 网络）时开启：客户端 IP 改从 X-Forwarded-For 推导，
-      # 限流桶 / 评论 ip 落库 / 验证码 IP 绑定随之按真实客户端生效。
-      # 前提：app 不可被外部直连（本文件默认不发布端口，恰好满足）
-      # APP_TRUST_XFF: "true"
+      # 反向代理部署时采信 X-Forwarded-For 推导真实客户端 IP（默认已开启，见 config/default.toml；
+      # 限流桶 / 评论 ip 落库 / 验证码 IP 绑定随之按真实客户端生效）。app 可被外部直连时不要经反代
+      # 且必须显式关闭（APP_TRUST_XFF=false），否则客户端可伪造 XFF 绕过限流。
+      # 前提：app 不可被外部直连（默认仅绑定 127.0.0.1，恰好满足）
+      # APP_TRUST_XFF: "false"
     volumes:
       - sqlite-data:/app/data
-    # 默认不绑定宿主机端口，app 仅在 compose 内网可达（redis 走内部服务名通信，本来就不绑定）。
-    # 需要从宿主机/外部直接访问时取消注释；或让反向代理加入本 compose 网络。
-    # ports:
-    #   - "8080:8080"
+    # 宿主机发布端口由 .env / shell 环境变量 APP_PORT 控制（默认 8080），
+    # 默认只绑定 127.0.0.1（宿主机反代 / 本地调试可直接用；外部不可达，无需动 APP_TRUST_XFF）：
+    #   APP_PORT=9000 docker compose up -d     # 宿主机 127.0.0.1:9000 -> 容器 8080
+    # 容器内监听端口由 APP_SERVER_PORT 控制（默认 8080），两者独立。
+    # 需对外直接暴露时把 127.0.0.1 前缀去掉，并务必同时置 APP_TRUST_XFF=false；
+    # 仅经反代（反代容器在 compose 网络内）暴露时注释掉本段，让 app 不发布任何端口
+    # （redis 走内部服务名通信，本来就不绑定）。
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
 
 volumes:
   sqlite-data:

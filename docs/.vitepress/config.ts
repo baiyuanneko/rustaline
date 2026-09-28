@@ -3,8 +3,10 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   lang: 'zh-CN',
   title: 'rustaline',
-  description: 'Valine 自托管替代品 · Material 3 评论系统',
+  description: '类似 Valine 的开源评论服务',
   base: '/rustaline/',
+
+  head: [['link', { rel: 'icon', type: 'image/webp', href: '/icon.webp' }]],
 
   vue: {
     template: {
@@ -17,23 +19,19 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: '/icon.webp',
+
     nav: [
-      { text: '指南', link: '/guide/quick-start' },
-      { text: '评论接入', link: '/comment/sdk' },
+      { text: '快速上手', link: '/guide/quick-start' },
+      { text: '人员感谢名单', link: '/thanks' },
       {
         text: 'GitHub',
         link: 'https://github.com/baiyuanneko/rustaline',
       },
     ],
     sidebar: [
-      {
-        text: '指南',
-        items: [{ text: '快速开始', link: '/guide/quick-start' }],
-      },
-      {
-        text: '评论系统',
-        items: [{ text: '博客接入（SDK）', link: '/comment/sdk' }],
-      },
+      { text: '快速上手', link: '/guide/quick-start' },
+      { text: '人员感谢名单', link: '/thanks' },
     ],
     search: { provider: 'local' },
     outline: { label: '本页目录' },

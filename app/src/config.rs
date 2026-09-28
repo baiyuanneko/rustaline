@@ -31,8 +31,9 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     /// 是否采信 X-Forwarded-For 推导真实客户端 IP（反代部署场景）。
-    /// 默认 false：一律使用连接对端 IP，XFF 被忽略。
-    /// 仅在 app 不可被外部直连（仅经反代可达）时才可开启，否则客户端可伪造 XFF 绕过限流。
+    /// config/default.toml 中默认为 true（XFF 最右侧条目优先）；该文件未加载、
+    /// 键缺失时的 serde 兜底值为 false（连接对端 IP，忽略 XFF）。
+    /// app 可被外部直连、不经反代时必须显式置 false，否则客户端可伪造 XFF 绕过限流。
     #[serde(default)]
     pub trust_xff: bool,
 }

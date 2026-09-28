@@ -24,8 +24,9 @@ bynrust26/
 │   └── src/m*_*.rs       # 迁移文件，按时间戳命名并注册进 lib.rs 的 Migrator
 ├── docs/                 # VitePress 文档站（GitHub Pages 部署，base=/rustaline/；独立 npm 工程，不参与 cargo）
 │   ├── package.json      # 依赖 mdui@2.1.5（与 vendor 版本一致，npm 引入无需 vendor）+ vitepress
-│   ├── .vitepress/       # config.ts（base / zh-CN / isCustomElement 声明 mdui-* 自定义元素）+ theme（extend 默认主题 + M3 令牌 custom.css）
-│   └── *.md              # 首页 + 示例页（guide/quick-start、comment/sdk）
+│   ├── public/icon.webp  # 站点 logo / favicon（复制自 static/icon.webp）
+│   ├── .vitepress/       # config.ts（base / zh-CN / logo / isCustomElement 声明 mdui-* 自定义元素）+ theme（extend 默认主题 + M3 令牌 custom.css）
+│   └── *.md              # 首页 + 快速上手（guide/quick-start）+ 人员感谢名单（thanks）
 ├── .github/workflows/    # docs.yml：push dev 分支构建 docs/ 并发布 GitHub Pages
 └── app/                  # 应用 crate（bin 名 bynrust26，lib 名 app）
     ├── src/
@@ -97,7 +98,7 @@ DB 切换：`--no-default-features --features postgres|mysql`（app 与 migratio
 - 除 login / health / swagger 外，接口一律加 `AuthUser` extractor 参数做认证。**例外**：公共评论接口 `GET/POST /api/v1/comments` 按 Valine 语义匿名开放，靠限流 + 蜜罐 + moderation 防滥用。
 - 需要登录的接口在 utoipa 注解里加 `security(("bearer_auth" = []))`。
 - 公共评论响应 DTO 绝不包含 ip / mail / ua / status（隐私）；这些字段仅出现在 `/api/v1/admin/*` 响应中。例外一：`ua_summary`（`services/ua.rs` 解析出的评论者环境摘要，如 "Chrome 126 · Windows"），由 `comment.display_commenter_user_agent`（env `APP_DISPLAY_COMMENTER_USER_AGENT`）控制，默认开启；原始 ua 仍绝不进公共响应。例外二：`pending: bool`（由 status 推导的布尔标志，不暴露具体状态值）——仅 POST 创建响应在 moderation 开启时为 true，列表/回复接口只返回 approved 故恒为 false；SDK 收到 `pending=true` 时不做乐观插入，回滚占位并展示「待审核」提示（H-6）。
-- 提交评论的 ip/ua 由服务端采集，客户端 body 传的一律忽略。客户端 IP 统一经 `middleware/rate_limit.rs::extract_client_ip` 推导：默认（`server.trust_xff=false`）使用 ConnectInfo 对端 IP、忽略 X-Forwarded-For（防伪造）；反代部署置 `APP_TRUST_XFF=true` 后取 XFF **最右侧**可解析条目（标准反代把真实客户端 IP 追加在链尾，取首项会被客户端伪造），XFF 缺失或全畸形时回退对端 IP。**仅当 app 不可被外部直连、仅经反代可达时才可开启 trust_xff**，否则客户端可伪造 XFF 绕过全部限流。所有限流桶、`comments.ip` 落库与 `captcha.bind_ip` 都走这一个函数。
+- 提交评论的 ip/ua 由服务端采集，客户端 body 传的一律忽略。客户端 IP 统一经 `middleware/rate_limit.rs::extract_client_ip` 推导：默认（`server.trust_xff=true`）取 XFF **最右侧**可解析条目（标准反代把真实客户端 IP 追加在链尾，取首项会被客户端伪造），XFF 缺失或全畸形时回退对端 IP；app 可被外部直连、不经反代的部署必须置 `APP_TRUST_XFF=false`（使用 ConnectInfo 对端 IP、忽略 XFF），否则客户端可伪造 XFF 绕过全部限流。所有限流桶、`comments.ip` 落库与 `captcha.bind_ip` 都走这一个函数。
 - 迁移用 sea-query 跨库写法（`sea_orm_migration::schema::*` 辅助函数），不要写单库专有 SQL；新迁移文件命名 `mYYYYMMDD_NNNNNN_<描述>.rs` 并注册进 `migration/src/lib.rs`。
 - 时间戳统一 `chrono::NaiveDateTime`（实体 `DateTime`，migration 用 `date_time(...)`），由 service 层显式赋值。序列化为 UTC 朴素时间（无时区后缀）；**前端（SDK / 管理面板）解析时必须按 UTC 处理**（现有 `parseServerTime` 助手），否则非 UTC 时区显示偏差。
 - 表名用复数（`comments`），避免与数据库保留字冲突。
