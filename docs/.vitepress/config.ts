@@ -2,11 +2,12 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   lang: 'zh-CN',
-  title: 'rustaline',
+  title: 'Rustaline 文档',
   description: '类似 Valine 的开源评论服务',
   base: '/rustaline/',
 
-  head: [['link', { rel: 'icon', type: 'image/webp', href: '/icon.webp' }]],
+  // head 链接原样注入、不自动加 base，href 必须写完整路径前缀
+  head: [['link', { rel: 'icon', type: 'image/webp', href: '/rustaline/icon.webp' }]],
 
   vue: {
     template: {

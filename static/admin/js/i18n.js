@@ -79,7 +79,8 @@ const DICTS = {
     "footer.madeWith": "Made with ♥️ by ",
     "footer.license": ", BSD 3-Clause \"New\" or \"Revised\" License Licensed.",
     "footer.thanksPrefix": "Special thanks to ",
-    "footer.thanksSuffix": " and more for help to the development of Rustaline!",
+    "footer.thanksMore": " and more",
+    "footer.thanksSuffix": " for help to the development of Rustaline!",
 
     // ---- 外观 / 偏好 ----
     "prefs.openLabel": "外观设置",
@@ -379,7 +380,8 @@ const DICTS = {
     "footer.madeWith": "Made with ♥️ by ",
     "footer.license": ", BSD 3-Clause \"New\" or \"Revised\" License Licensed.",
     "footer.thanksPrefix": "Special thanks to ",
-    "footer.thanksSuffix": " and more for help to the development of Rustaline!",
+    "footer.thanksMore": " and more",
+    "footer.thanksSuffix": " for help to the development of Rustaline!",
 
     // ---- appearance / prefs ----
     "prefs.openLabel": "Appearance",
