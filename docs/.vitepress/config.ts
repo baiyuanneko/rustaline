@@ -24,6 +24,7 @@ export default defineConfig({
 
     nav: [
       { text: '快速上手', link: '/guide/quick-start' },
+      { text: '从 Valine 导入', link: '/guide/import' },
       { text: '人员感谢名单', link: '/thanks' },
       {
         text: 'GitHub',
@@ -32,6 +33,7 @@ export default defineConfig({
     ],
     sidebar: [
       { text: '快速上手', link: '/guide/quick-start' },
+      { text: '从 Valine 导入', link: '/guide/import' },
       { text: '人员感谢名单', link: '/thanks' },
     ],
     search: { provider: 'local' },

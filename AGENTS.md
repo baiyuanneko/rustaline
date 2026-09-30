@@ -26,7 +26,7 @@ bynrust26/
 │   ├── package.json      # 依赖 mdui@2.1.5（与 vendor 版本一致，npm 引入无需 vendor）+ vitepress
 │   ├── public/icon.webp  # 站点 logo / favicon（复制自 static/icon.webp）
 │   ├── .vitepress/       # config.ts（base / zh-CN / logo / isCustomElement 声明 mdui-* 自定义元素）+ theme（extend 默认主题 + M3 令牌 custom.css）
-│   └── *.md              # 首页 + 快速上手（guide/quick-start）+ 人员感谢名单（thanks）
+│   └── *.md              # 首页 + 快速上手（guide/quick-start）+ 从 Valine 导入（guide/import）+ 人员感谢名单（thanks）
 ├── .github/workflows/    # docs.yml：push dev 分支构建 docs/ 并发布 GitHub Pages
 └── app/                  # 应用 crate（bin 名 bynrust26，lib 名 app）
     ├── src/
