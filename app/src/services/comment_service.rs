@@ -5,16 +5,17 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
     ExprTrait, IntoSimpleExpr, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait,
 };
 use uuid::Uuid;
 
 use redis::aio::ConnectionManager;
 
-use crate::config::CommentConfig;
+use crate::config::{CommentConfig, MailConfig};
 use crate::dto::{
-    AdminCommentListResponse, AdminCommentParent, AdminCommentResponse, AdminConfigResponse,
-    CommentConfigResponse, CommentCreateRequest, CommentPublicResponse, CommentRepliesResponse,
-    CommentStatsResponse, CommentStatusUpdate, CommentThreadResponse, CommentThreadRoot, UrlCount,
+    AdminCommentListResponse, AdminCommentParent, AdminCommentResponse, CommentCreateRequest,
+    CommentPublicResponse, CommentRepliesResponse, CommentStatsResponse, CommentStatusUpdate,
+    CommentThreadResponse, CommentThreadRoot, UrlCount,
 };
 use crate::entities::comments;
 use crate::error::AppError;
@@ -237,6 +238,7 @@ pub async fn create_comment(
     captcha_memory: &std::sync::Arc<CaptchaMemoryStore>,
     captcha_signing_key: &[u8],
     config: &CommentConfig,
+    mail: &MailConfig,
     payload: CommentCreateRequest,
     ip: String,
     ua: Option<String>,
@@ -329,12 +331,16 @@ pub async fn create_comment(
         ip: Set(Some(ip)),
         ua: Set(ua),
         is_notified: Set(false),
+        reply_notification: Set(payload.reply_notification),
         status: Set(status.to_owned()),
         inserted_at: Set(now),
         created_at: Set(now),
         updated_at: Set(now),
     };
-    let model = active.insert(db).await?;
+    let txn = db.begin().await?;
+    let model = active.insert(&txn).await?;
+    super::mail_service::enqueue_new_comment(&txn, mail, &model).await?;
+    txn.commit().await?;
     Ok(public_dto_from_model(model, config))
 }
 
@@ -437,8 +443,9 @@ pub async fn update_status(
     id: &str,
     payload: CommentStatusUpdate,
 ) -> Result<AdminCommentResponse, AppError> {
+    let txn = db.begin().await?;
     let model = comments::Entity::find_by_id(id)
-        .one(db)
+        .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("comment {id} not found")))?;
 
@@ -450,15 +457,18 @@ pub async fn update_status(
     }
 
     let mut active: comments::ActiveModel = model.into();
-    active.status = Set(status);
+    active.status = Set(status.clone());
     active.updated_at = Set(Utc::now().naive_utc());
-    let updated = active.update(db).await?;
+    let updated = active.update(&txn).await?;
+    super::mail_queue::update_comment_status(&txn, id, &status).await?;
+    txn.commit().await?;
     Ok(admin_dto_from_model(updated, None, config))
 }
 
 pub async fn delete_comment(db: &DatabaseConnection, id: &str) -> Result<(), AppError> {
+    let txn = db.begin().await?;
     let model = comments::Entity::find_by_id(id)
-        .one(db)
+        .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("comment {id} not found")))?;
 
@@ -466,10 +476,12 @@ pub async fn delete_comment(db: &DatabaseConnection, id: &str) -> Result<(), App
         .col_expr(comments::Column::Pid, Expr::value(None::<String>))
         .col_expr(comments::Column::Rid, Expr::value(None::<String>))
         .filter(comments::Column::Pid.eq(&model.id))
-        .exec(db)
+        .exec(&txn)
         .await?;
 
-    comments::Entity::delete_by_id(model.id).exec(db).await?;
+    super::mail_queue::cancel_for_comment(&txn, &model.id).await?;
+    comments::Entity::delete_by_id(model.id).exec(&txn).await?;
+    txn.commit().await?;
     Ok(())
 }
 
@@ -515,22 +527,6 @@ pub async fn get_stats(db: &DatabaseConnection) -> Result<CommentStatsResponse, 
         today_new,
         urls,
     })
-}
-
-pub fn get_admin_config(config: &crate::config::AppConfig) -> AdminConfigResponse {
-    AdminConfigResponse {
-        comment: CommentConfigResponse {
-            moderation: config.comment.moderation,
-            max_length: config.comment.max_length,
-            rate_limit_per_minute: config.comment.rate_limit_per_minute,
-            default_nick: config.comment.default_nick.clone(),
-            avatar_cdn: config.comment.avatar_cdn.clone(),
-            display_commenter_user_agent: config.comment.display_commenter_user_agent,
-        },
-        version: env!("CARGO_PKG_VERSION").to_owned(),
-        introduction_index: config.static_.introduction_index,
-        swagger_ui: config.swagger.enabled,
-    }
 }
 
 async fn count_by_status(db: &DatabaseConnection, status: &str) -> Result<u64, AppError> {

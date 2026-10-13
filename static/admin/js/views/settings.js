@@ -1,6 +1,7 @@
 import { fetchConfig, changePassword, clearSession } from "../api.js";
 import { loadingScreen, emptyState, toastErr, toastOk, el } from "../components.js";
 import { t } from "../i18n.js";
+import { renderRuntimeSettings } from "./settings-runtime.js";
 
 export async function render(container) {
   container.appendChild(pageHead());
@@ -38,57 +39,7 @@ function pageHead() {
 }
 
 function renderConfig(cfg) {
-  const wrap = el("div");
-  const comment = (cfg && cfg.comment) || {};
-  const version = cfg && cfg.version ? String(cfg.version) : "—";
-
-  const card = el("mdui-card", { class: "page-card" });
-  const header = el("div", { class: "page-card__header" });
-  header.appendChild(el("div", { class: "page-card__title", text: t("settings.commentConfig") }));
-  card.appendChild(header);
-
-  const body = el("div", { class: "page-card__body" });
-  const dl = el("div", { class: "kv-list" });
-
-  const rows = [
-    ["moderation", comment.moderation, t("settings.hintModeration")],
-    ["max_length", comment.max_length, t("settings.hintMaxLength")],
-    ["rate_limit_per_minute", comment.rate_limit_per_minute, t("settings.hintRateLimit")],
-    ["default_nick", comment.default_nick, t("settings.hintDefaultNick")],
-    ["avatar_cdn", comment.avatar_cdn || t("settings.emptyValue"), t("settings.hintAvatarCdn")],
-    ["display_commenter_user_agent", comment.display_commenter_user_agent, t("settings.hintDisplayUa")],
-    ["version", version, t("settings.hintVersion")],
-  ];
-
-  for (const [k, v, hint] of rows) {
-    const key = el("div", { class: "kv-list__key", text: k });
-    if (hint) key.title = hint;
-    const val = el("div", { class: "kv-list__val" });
-    val.appendChild(el("code", { text: formatVal(v) }));
-    dl.appendChild(key);
-    dl.appendChild(val);
-  }
-  body.appendChild(dl);
-
-  const note = el("div", { class: "page-subtitle", style: { marginTop: "20px", lineHeight: "1.8" } });
-  note.appendChild(document.createTextNode(t("settings.configNotePre")));
-  note.appendChild(el("code", { text: "config/local.toml" }));
-  note.appendChild(document.createTextNode(t("settings.configNoteMid")));
-  note.appendChild(el("code", { text: "APP_COMMENT__MODERATION=true" }));
-  note.appendChild(document.createTextNode(t("settings.configNotePost")));
-  body.appendChild(note);
-
-  card.appendChild(body);
-  wrap.appendChild(card);
-  return wrap;
-}
-
-function formatVal(v) {
-  if (v === null || v === undefined) return "null";
-  if (typeof v === "boolean") return v ? "true" : "false";
-  if (typeof v === "number") return String(v);
-  if (typeof v === "string") return v;
-  return JSON.stringify(v);
+  return renderRuntimeSettings(cfg);
 }
 
 function renderPasswordCard() {

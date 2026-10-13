@@ -115,7 +115,7 @@ impl RateLimiter {
 /// axum middleware：从 ConnectInfo 或 X-Forwarded-For 取 IP，超限返回 429。
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
-    request: axum::extract::Request,
+    mut request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
     let ip = extract_client_ip(
@@ -124,7 +124,10 @@ pub async fn rate_limit_middleware(
         state.config.server.trust_xff,
     )
     .unwrap_or_else(|| "0.0.0.0".parse().expect("static ip"));
-    let max = state.config.comment.rate_limit_per_minute;
+    let settings =
+        crate::services::settings_service::load(&state.db, &state.config.jwt.secret).await?;
+    let max = settings.comment.rate_limit_per_minute;
+    request.extensions_mut().insert(settings);
     if !state.comment_rate_limiter.check(ip, max) {
         return Err(AppError::TooManyRequests(
             "comment rate limit exceeded, try again later".into(),

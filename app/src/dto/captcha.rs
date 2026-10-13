@@ -14,6 +14,9 @@ pub struct PowSolution {
 /// `GET /api/v1/captcha/config`：SDK 启动探测服务端验证码开关
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CaptchaConfigResponse {
+    /// 当前评论正文字符上限，SDK 提交前随验证码配置刷新。
+    pub comment_max_length: usize,
+    pub reply_notification_enabled: bool,
     pub pow: PowConfigInfo,
     pub image: ImageCaptchaConfigInfo,
 }

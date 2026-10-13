@@ -9,6 +9,7 @@ use crate::dto::{
 use crate::error::AppError;
 use crate::middleware::rate_limit::ClientIp;
 use crate::services::comment_service;
+use crate::services::settings_service::RuntimeSettings;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -23,18 +24,14 @@ use crate::state::AppState;
 #[debug_handler]
 pub async fn list_comments(
     State(state): State<AppState>,
+    RuntimeSettings(settings): RuntimeSettings,
     Query(query): Query<CommentListQuery>,
 ) -> Result<Json<CommentThreadResponse>, AppError> {
     let page = query.page.unwrap_or(1);
     let page_size = query.page_size.unwrap_or(0); // 0 = 服务端默认
-    let resp = comment_service::list_threads(
-        &state.db,
-        &state.config.comment,
-        &query.url,
-        page,
-        page_size,
-    )
-    .await?;
+    let resp =
+        comment_service::list_threads(&state.db, &settings.comment, &query.url, page, page_size)
+            .await?;
     Ok(Json(resp))
 }
 
@@ -51,11 +48,12 @@ pub async fn list_comments(
 #[debug_handler]
 pub async fn list_replies(
     State(state): State<AppState>,
+    RuntimeSettings(settings): RuntimeSettings,
     Query(query): Query<CommentRepliesQuery>,
 ) -> Result<Json<CommentRepliesResponse>, AppError> {
     let resp = comment_service::list_replies(
         &state.db,
-        &state.config.comment,
+        &settings.comment,
         &query.url,
         &query.rid,
         query.offset.unwrap_or(0),
@@ -79,6 +77,7 @@ pub async fn list_replies(
 #[debug_handler]
 pub async fn submit_comment(
     State(state): State<AppState>,
+    RuntimeSettings(settings): RuntimeSettings,
     ClientIp(ip): ClientIp,
     headers: axum::http::HeaderMap,
     Json(payload): Json<CommentCreateRequest>,
@@ -97,7 +96,8 @@ pub async fn submit_comment(
         &state.redis,
         &state.captcha_memory,
         &state.captcha_signing_key,
-        &state.config.comment,
+        &settings.comment,
+        &settings.mail,
         payload,
         ip,
         ua,

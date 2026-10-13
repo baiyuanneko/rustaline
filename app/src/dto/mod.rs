@@ -2,6 +2,13 @@ mod auth;
 mod captcha;
 mod comment;
 mod common;
+mod mail;
+pub use mail::{MailStatusResponse, MailTestRequest};
+mod settings;
+pub use settings::{
+    CaptchaSettingsPatch, CaptchaSettingsResponse, CommentSettingsPatch, MailSettingsPatch,
+    MailSettingsResponse, SettingsPatchRequest,
+};
 
 pub use auth::{ChangePasswordRequest, LoginRequest, LoginResponse};
 pub use captcha::{

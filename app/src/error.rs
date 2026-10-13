@@ -16,6 +16,8 @@ pub enum AppError {
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
+    Conflict(String),
+    #[error("{0}")]
     TooManyRequests(String),
     #[error("invalid request body")]
     JsonRejection(#[from] axum::extract::rejection::JsonRejection),
@@ -58,6 +60,7 @@ impl AppError {
             Self::BadRequest(_) | Self::JsonRejection(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Db(_)
             | Self::Redis(_)

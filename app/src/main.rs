@@ -22,7 +22,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 1.5 JWT 密钥强度校验：弱默认值或过短直接启动失败（放在 load 之外，
     // 不影响手工构造配置的测试与 migration CLI）
     app::config::validate_jwt_secret(&config.jwt.secret).map_err(|e| e.to_string())?;
-    app::config::validate_captcha_config(&config.comment).map_err(|e| e.to_string())?;
 
     // 2. 初始化日志
     tracing_subscriber::fmt()
@@ -39,6 +38,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 4. 执行未应用的迁移
     tracing::info!("running migrations");
     Migrator::up(&db, None).await?;
+    let settings = app::services::settings_service::initialize(&db, &config).await?;
+    app::services::settings_service::validate(&settings)?;
 
     // 4.5 管理员种子：admins 表为空时按 initial_admin 配置种入唯一管理员；
     // 已有记录则忽略环境变量（之后改密码走管理面板，见 auth/admin.rs）
@@ -67,6 +68,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = app::routes::create_router(state.clone());
     let addr = format!("{}:{}", state.config.server.host, state.config.server.port);
     let listener = TcpListener::bind(&addr).await?;
+    let mail_worker = app::services::mail_worker::spawn_worker(state.clone());
     tracing::info!("listening on http://{addr}");
     tracing::info!("swagger ui at http://{addr}/swagger-ui/");
 
@@ -79,12 +81,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
              请确保 app 不可被外部直连、仅经反代可达，否则客户端可伪造 XFF 绕过限流"
         );
     }
-    axum::serve(
+    let result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    .await;
+    mail_worker.shutdown().await;
+    result?;
 
     tracing::info!("shutdown complete");
     Ok(())

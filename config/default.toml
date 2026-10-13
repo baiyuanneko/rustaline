@@ -1,5 +1,7 @@
 # 默认配置。优先级（低 -> 高）：
 #   config/default.toml < config/local.toml（gitignore，本机覆盖）< APP_* 环境变量
+# comment / mail 业务配置仅用于 app_settings 表为空时的首次播种；之后在后台保存，数据库优先。
+# comment.captcha.secret 是部署密钥，始终从本文件/环境变量读取，不进入业务设置表。
 
 [server]
 host = "0.0.0.0"
@@ -78,3 +80,21 @@ secret = ""
 # 管理员账号（唯一用户）没有默认值：APP_INITIAL_ADMIN_USERNAME / APP_INITIAL_ADMIN_PASSWORD
 # （或嵌套写法 APP_INITIAL_ADMIN__USERNAME / APP_INITIAL_ADMIN__PASSWORD）
 # 仅在首次启动、admins 表为空时作为种子写入数据库；入库后被忽略（改密码走管理面板）
+
+# SMTP 默认关闭。以下为首次初始化默认值，之后使用管理面板「设置」修改。
+[mail]
+enabled = false
+host = ""
+port = 587
+# starttls / tls / none（本地中继）
+security = "starttls"
+username = ""
+password = ""
+from_email = ""
+from_name = ""
+admin_email = ""
+notify_admin = false
+notify_reply = false
+site_name = ""
+site_url = ""
+language = "zh-CN"

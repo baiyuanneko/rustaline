@@ -1,4 +1,12 @@
 pub mod captcha_service;
 pub mod comment_service;
 pub mod import_service;
+pub mod mail_queue;
+pub mod mail_service;
+mod mail_templates;
+mod mail_transport;
+pub mod mail_worker;
+mod settings_crypto;
+pub mod settings_service;
+mod settings_validation;
 pub mod ua;

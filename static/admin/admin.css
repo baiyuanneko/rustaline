@@ -1297,3 +1297,25 @@ mdui-button.btn-danger {
   --mdui-color-primary: var(--mdui-color-error);
   --mdui-color-on-primary: var(--mdui-color-on-error);
 }
+
+/* Runtime business settings */
+.settings-form { display: grid; gap: 20px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
+.settings-field { min-width: 0; }
+.settings-field mdui-text-field, .settings-field mdui-select, .settings-password mdui-text-field { width: 100%; }
+.settings-switch { margin-top: 8px; }
+.settings-switch-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 56px; font-size: 14px; }
+.settings-switch-row .settings-switch { flex: 0 0 auto; margin: 0; }
+.settings-hint { color: rgb(var(--mdui-color-on-surface-variant)); font-size: 13px; line-height: 1.7; margin-top: 8px; overflow-wrap: anywhere; }
+.settings-password { display: grid; gap: 12px; margin-top: 24px; }
+.settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.settings-state { color: rgb(var(--mdui-color-on-surface-variant)); font-size: 14px; overflow-wrap: anywhere; }
+.settings-runtime > .page-card { margin-top: 24px; }
+.settings-mail-status { display: grid; gap: 10px; margin-top: 20px; }
+.settings-mail-status > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; }
+.settings-mail-status strong { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .settings-actions mdui-button { flex: 1 1 auto; }
+  .settings-state { flex-basis: 100%; }
+}

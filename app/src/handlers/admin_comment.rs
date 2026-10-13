@@ -4,10 +4,11 @@ use axum::{Json, debug_handler};
 
 use crate::auth::middleware::AuthUser;
 use crate::dto::{
-    AdminCommentListResponse, AdminCommentQuery, AdminConfigResponse, CommentStatsResponse,
-    CommentStatusUpdate, ValineImportReport,
+    AdminCommentListResponse, AdminCommentQuery, CommentStatsResponse, CommentStatusUpdate,
+    ValineImportReport,
 };
 use crate::error::AppError;
+use crate::services::settings_service::RuntimeSettings;
 use crate::services::{comment_service, import_service};
 use crate::state::AppState;
 
@@ -26,13 +27,14 @@ use crate::state::AppState;
 pub async fn list_admin_comments(
     State(state): State<AppState>,
     _auth: AuthUser,
+    RuntimeSettings(settings): RuntimeSettings,
     Query(query): Query<AdminCommentQuery>,
 ) -> Result<Json<AdminCommentListResponse>, AppError> {
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
     let result = comment_service::list_admin(
         &state.db,
-        &state.config.comment,
+        &settings.comment,
         comment_service::AdminListFilter {
             status: query.status.as_deref(),
             url: query.url.as_deref(),
@@ -64,11 +66,11 @@ pub async fn list_admin_comments(
 pub async fn update_comment_status(
     State(state): State<AppState>,
     _auth: AuthUser,
+    RuntimeSettings(settings): RuntimeSettings,
     Path(id): Path<String>,
     Json(payload): Json<CommentStatusUpdate>,
 ) -> Result<Json<crate::dto::AdminCommentResponse>, AppError> {
-    let result =
-        comment_service::update_status(&state.db, &state.config.comment, &id, payload).await?;
+    let result = comment_service::update_status(&state.db, &settings.comment, &id, payload).await?;
     Ok(Json(result))
 }
 
@@ -133,22 +135,4 @@ pub async fn get_stats(
 ) -> Result<Json<CommentStatsResponse>, AppError> {
     let stats = comment_service::get_stats(&state.db).await?;
     Ok(Json(stats))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/admin/config",
-    tag = "comments-admin",
-    security(("bearer_auth" = [])),
-    responses(
-        (status = 200, description = "Effective config", body = AdminConfigResponse),
-        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
-    )
-)]
-#[debug_handler]
-pub async fn get_admin_config(
-    State(state): State<AppState>,
-    _auth: AuthUser,
-) -> Result<Json<AdminConfigResponse>, AppError> {
-    Ok(Json(comment_service::get_admin_config(&state.config)))
 }

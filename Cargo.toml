@@ -56,3 +56,7 @@ subtle = "2"
 base64 = "0.22"
 # 图形验证码 PNG 生成（纯 Rust，内置字体与 Noise/Wave 滤镜）
 captcha = "1.0"
+aes-gcm = "0.10"
+email_address = "0.2"
+url = "2"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls", "pool", "hostname"] }

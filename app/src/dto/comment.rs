@@ -11,6 +11,9 @@ pub struct CommentCreateRequest {
     pub link: Option<String>,
     pub pid: Option<String>,
     pub rid: Option<String>,
+    /// 接收直接回复的邮件提醒，旧客户端省略时保持开启。
+    #[serde(default = "default_true")]
+    pub reply_notification: bool,
     // 白名单到此为止：qq_avatar / ip / ua 等一律由服务端推导或采集，
     // 客户端即使提交也会被 serde 忽略（M-4 加固）
     #[serde(default)]
@@ -24,6 +27,10 @@ pub struct CommentCreateRequest {
     /// 图形验证码用户输入
     #[serde(default)]
     pub captcha_code: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -183,10 +190,13 @@ pub struct CommentConfigResponse {
     pub avatar_cdn: String,
     /// 是否在公共评论响应中下发 UA 解析摘要（ua_summary）
     pub display_commenter_user_agent: bool,
+    pub captcha: crate::dto::CaptchaSettingsResponse,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdminConfigResponse {
+    pub revision: i64,
+    pub mail: crate::dto::MailSettingsResponse,
     pub comment: CommentConfigResponse,
     pub version: String,
     /// 演示首页是否启用（false 时 / 重定向到 /admin/）
