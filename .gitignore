@@ -13,3 +13,7 @@ config/local.toml
 
 # ZCode 会话产物
 .zcode/
+
+# 项目专用构建工具与 Superpowers 临时协作文件
+.rustaline-tools/
+.superpowers/
