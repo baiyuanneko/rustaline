@@ -19,6 +19,7 @@ pub struct Model {
     pub ip: Option<String>,
     pub ua: Option<String>,
     pub is_notified: bool,
+    pub reply_notification: bool,
     pub status: String,
     pub inserted_at: DateTime,
     pub created_at: DateTime,

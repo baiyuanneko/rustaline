@@ -24,11 +24,16 @@ use crate::{dto, handlers};
         handlers::admin_comment::delete_comment,
         handlers::admin_comment::import_valine,
         handlers::admin_comment::get_stats,
-        handlers::admin_comment::get_admin_config,
+        handlers::settings::get_admin_config,
+        handlers::settings::patch_admin_config,
+        handlers::mail::send_test,
+        handlers::mail::status,
     ),
     components(schemas(
         dto::HealthResponse,
         dto::MessageResponse,
+        dto::MailTestRequest,
+        dto::MailStatusResponse,
         dto::ErrorResponse,
         dto::LoginRequest,
         dto::LoginResponse,
@@ -52,6 +57,12 @@ use crate::{dto, handlers};
         dto::CommentStatsResponse,
         dto::CommentConfigResponse,
         dto::AdminConfigResponse,
+        dto::SettingsPatchRequest,
+        dto::CommentSettingsPatch,
+        dto::CaptchaSettingsPatch,
+        dto::MailSettingsPatch,
+        dto::CaptchaSettingsResponse,
+        dto::MailSettingsResponse,
         dto::ValineImportItem,
         dto::ValineImportRequest,
         dto::ValineImportReport,
@@ -63,6 +74,7 @@ use crate::{dto, handlers};
         (name = "comments", description = "公共评论接口（匿名）"),
         (name = "captcha", description = "评论验证码（PoW / 图形码，匿名）"),
         (name = "comments-admin", description = "评论管理接口（需认证）"),
+        (name = "mail-admin", description = "邮件测试与队列状态（需认证）"),
     )
 )]
 pub struct ApiDoc;

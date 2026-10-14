@@ -163,6 +163,18 @@ export function fetchConfig() {
   return api.get("/admin/config");
 }
 
+export function saveConfig(settings) {
+  return api.patch("/admin/config", settings);
+}
+
+export function testMail(to) {
+  return api.post("/admin/mail/test", { to });
+}
+
+export function fetchMailStatus() {
+  return api.get("/admin/mail/status");
+}
+
 export function changePassword(currentPassword, newPassword) {
   return api.post("/admin/account/password", {
     current_password: currentPassword,

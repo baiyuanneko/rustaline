@@ -28,6 +28,7 @@ bynrust26/
 │   ├── .vitepress/       # config.ts（base / zh-CN / logo / isCustomElement 声明 mdui-* 自定义元素）+ theme（extend 默认主题 + M3 令牌 custom.css）
 │   └── *.md              # 首页 + 快速上手（guide/quick-start）+ 从 Valine 导入（guide/import）+ 人员感谢名单（thanks）
 ├── .github/workflows/    # docs.yml：push dev 分支构建 docs/ 并发布 GitHub Pages
+│                         # docker.yml：Rust/SDK 校验 → 原生 AMD64/ARM64 构建与容器检查 → GHCR 发布
 └── app/                  # 应用 crate（bin 名 bynrust26，lib 名 app）
     ├── src/
     │   ├── main.rs       # 启动流程与优雅退出（into_make_service_with_connect_info 注入客户端 IP）
@@ -61,6 +62,27 @@ JWT 密钥启动时强制校验（`config.rs::validate_jwt_secret`，在 main.rs
 单管理员入库：`admins` 表仅一行（迁移 m20260903_000001）。`APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 仅在表为空时作首次种子（此时缺失即启动失败），入库后被完全忽略（改动无效，可从 env 移除）。密码只存 argon2 哈希；login 查库比对发 JWT（sub = 用户名，claims 带 ver = token_version）；改密码走管理面板设置页（`POST /api/v1/admin/account/password`，校验当前密码、新密码 ≥8 字符），改密自增 token_version 使包括当前在内的全部旧 token 立即失效；AuthUser 在验签 + 黑名单后查库比对 token_version（单管理员低频，每请求一次 DB 查询可接受）。
 
 
+## Docker 云端构建
+
+- `.github/workflows/docker.yml` 在 dev/main 推送、v* 标签与手动触发时发布 GHCR 镜像；PR 仅校验。镜像路径从 github.repository 派生，fork 不向主仓库包写入。
+- 默认 SQLite，原生 ubuntu-24.04 / ubuntu-24.04-arm 分别构建并以 Redis 检查真实容器；两者成功后才更新多架构分支/latest/sha/版本标签。
+- 只有发布任务授予 packages:write，使用 GITHUB_TOKEN，无需 Docker Hub 凭据；Actions 版本固定为提交 SHA。
+- `.dockerignore` 白名单限制构建上下文，运行镜像只 COPY config/default.toml；禁止打入 .env、local.toml、数据库或本地工具缓存。
+- 生产 Dockerfile 默认官方源并使用 cargo --locked；国内本机可设置 DEBIAN_MIRROR 与 USE_CARGO_MIRROR 构建参数。
+- `docker-compose.image.yml` 与原 compose 叠加，RUSTALINE_IMAGE 指定云端镜像；使用 up --no-build 沿用现有 Redis 与数据卷。
+
+## 运行时设置与邮件通知
+
+- `app_settings` 保存评论/验证码规则及邮件业务配置；启动迁移后仅在 id=1 不存在时从旧 TOML/APP_* 播种，已有设置不能被环境变量覆盖。
+- 部署连接、JWT、静态目录/首页/Swagger、日志与验证码 HMAC 密钥继续使用 `AppConfig`。业务请求走 `RuntimeSettings`，评论限流先读取同一快照并通过请求 extensions 复用。
+- `GET/PATCH /api/v1/admin/config` 保留旧字段并扩展验证码/邮件；PATCH 带 revision 做比较并交换，冲突 409。SMTP 密码省略/空字符串保留，不 trim；clear_password 显式清除，API 不返回密码或密文。
+- SMTP 密码用 AES-256-GCM 加密，JWT 经独立标签派生密钥；JWT 轮换导致无法解密时仅暂停邮件并提示重设，不阻断其他业务设置。
+- `mail_jobs` 是持久通知队列：评论入库与入队同事务，SMTP 异步发送。管理员通知新提交，回复通知直接父评论；待审核回复批准后发送，历史/导入不追发，蜜罐不入队，event_key 唯一。
+- `comments.reply_notification` 是接收回复提醒偏好（旧数据/客户端默认 true），`is_notified` 仍表示回复邮件发送状态；两者和邮箱均不进入公共评论响应。
+- 邮件领取使用条件更新与租约；SMTP 总超时 30 秒，租约 120 秒，最多 5 次尝试；测试使用本机假 SMTP，不给外部邮箱自动发送测试信。
+- 修改 PoW TTL 时，防重放消费记录必须覆盖签名令牌的剩余有效期，不能用新缩短的设置提前过期。
+- SDK 每次提交前刷新验证码、邮件开关及正文上限（公共配置 comment_max_length），按 Unicode 字符计数，网络失败保留草稿；后台和 SDK 新文案仍必须中英双语。
+
 ## mdui vendor 管理
 
 - 版本固定：`static/vendor/mdui/VERSION` 当前为 `2.1.5`；不得直接修改 vendor 文件。
@@ -82,6 +104,7 @@ cargo build                                   # 构建（默认 sqlite feature�
 cargo test                                    # 全部测试（黑名单用例需要本机 redis-server，缺失时自动跳过）
 cargo clippy --all-targets -- -D warnings     # lint，提交前必须通过
 cargo fmt                                     # 格式化（rustfmt.toml: edition 2024）
+node app/tests/sdk.cjs                         # SDK 动态设置、草稿恢复与通知偏好回归
 cargo run -p app                              # 本地运行
 cargo run -p migration -- <up|down|status>    # 手动迁移（读 DATABASE_URL / .env）
 cd docs && npm run docs:dev                  # 文档站本地预览（首次先 npm install）

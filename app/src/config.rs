@@ -5,7 +5,10 @@
 //! - 常用项简写：`APP_DATABASE_URL`、`APP_REDIS_URL`、`APP_JWT_SECRET` 等（见下方映射表）
 
 use config::{Config, File};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+pub use crate::config::mail_config::MailConfig;
+mod mail_config;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +24,8 @@ pub struct AppConfig {
     pub swagger: SwaggerConfig,
     #[serde(default)]
     pub comment: CommentConfig,
+    #[serde(default)]
+    pub mail: MailConfig,
     #[serde(default)]
     pub initial_admin: InitialAdminConfig,
 }
@@ -94,7 +99,7 @@ impl Default for SwaggerConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommentConfig {
     /// true 时新评论 status=pending，需审核后才公开
@@ -124,7 +129,7 @@ pub struct CommentConfig {
 /// 评论验证码配置：PoW 与图形码完全独立，均开启时为 AND（两道都要过）。
 /// 评论验证码配置：PoW 与图形码完全独立，同时开启时为 AND（两道都要过）。
 /// 默认两种验证码均开启（防滥用优先），可用环境变量显式关闭。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaptchaConfig {
     /// 是否启用基于 SHA-256 hashcash 的工作量证明
@@ -149,7 +154,7 @@ pub struct CaptchaConfig {
     #[serde(default)]
     pub bind_ip: bool,
     /// HMAC 签名密钥；留空则从 jwt.secret 域分离派生
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub secret: String,
 }
 
@@ -306,11 +311,34 @@ const FLAT_ENV_MAP: &[(&str, &str)] = &[
     ("APP_COMMENT_CAPTCHA_SECRET", "comment.captcha.secret"),
     ("APP_INITIAL_ADMIN_USERNAME", "initial_admin.username"),
     ("APP_INITIAL_ADMIN_PASSWORD", "initial_admin.password"),
+    ("APP_MAIL_ENABLED", "mail.enabled"),
+    ("APP_MAIL_HOST", "mail.host"),
+    ("APP_MAIL_PORT", "mail.port"),
+    ("APP_MAIL_SECURITY", "mail.security"),
+    ("APP_MAIL_USERNAME", "mail.username"),
+    ("APP_MAIL_PASSWORD", "mail.password"),
+    ("APP_MAIL_FROM_EMAIL", "mail.from_email"),
+    ("APP_MAIL_FROM_NAME", "mail.from_name"),
+    ("APP_MAIL_ADMIN_EMAIL", "mail.admin_email"),
+    ("APP_MAIL_NOTIFY_ADMIN", "mail.notify_admin"),
+    ("APP_MAIL_NOTIFY_REPLY", "mail.notify_reply"),
+    ("APP_MAIL_SITE_NAME", "mail.site_name"),
+    ("APP_MAIL_SITE_URL", "mail.site_url"),
+    ("APP_MAIL_LANGUAGE", "mail.language"),
 ];
 
 /// 解析环境变量原始字符串：优先按 i64 / bool 解析，保证数值 / 布尔字段能反序列化，
 /// 其余按原样字符串处理。
-fn parse_env_value(raw: &str) -> config::Value {
+fn parse_env_value(key: &str, raw: &str) -> config::Value {
+    // 密码、用户名、站点名等字符串必须保留前导零与空白，不能先转数值。
+    if key.starts_with("mail.")
+        && !matches!(
+            key,
+            "mail.port" | "mail.enabled" | "mail.notify_admin" | "mail.notify_reply"
+        )
+    {
+        return raw.into();
+    }
     if let Ok(int) = raw.parse::<i64>() {
         int.into()
     } else if let Ok(flag) = raw.parse::<bool>() {
@@ -333,10 +361,9 @@ fn nested_env_overrides() -> Vec<(String, config::Value)> {
             if !rest.contains("__") {
                 return None;
             }
-            Some((
-                rest.to_ascii_lowercase().replace("__", "."),
-                parse_env_value(&raw),
-            ))
+            let key = rest.to_ascii_lowercase().replace("__", ".");
+            let value = parse_env_value(&key, &raw);
+            Some((key, value))
         })
         .collect()
 }
@@ -358,7 +385,7 @@ impl AppConfig {
         // 常用项的单层环境变量简写，优先级最高。
         for (env, key) in FLAT_ENV_MAP {
             if let Ok(raw) = std::env::var(env) {
-                builder = builder.set_override(*key, parse_env_value(&raw))?;
+                builder = builder.set_override(*key, parse_env_value(key, &raw))?;
             }
         }
 
@@ -456,6 +483,99 @@ mod tests {
         assert_eq!(c.image_max_attempts, 3);
         assert!(!c.bind_ip);
         assert!(c.secret.is_empty());
+        assert!(!cfg.mail.enabled);
+        assert_eq!(cfg.mail.port, 587);
+        assert_eq!(cfg.mail.security, "starttls");
+        assert_eq!(cfg.mail.language, "zh-CN");
+    }
+
+    #[test]
+    fn bootstrap_secrets_deserialize_but_never_serialize() {
+        let source = include_str!("../../config/default.toml")
+            .replace("secret = \"\"", "secret = \"captcha-bootstrap-secret\"");
+        let cfg: AppConfig = Config::builder()
+            .add_source(File::from_str(&source, FileFormat::Toml))
+            .set_override("mail.username", "mailer")
+            .unwrap()
+            .set_override("mail.password", "smtp-bootstrap-secret")
+            .unwrap()
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert_eq!(cfg.comment.captcha.secret, "captcha-bootstrap-secret");
+        assert_eq!(cfg.mail.password, "smtp-bootstrap-secret");
+        assert!(
+            !serde_json::to_string(&cfg.comment)
+                .unwrap()
+                .contains("captcha-bootstrap-secret")
+        );
+        assert!(
+            !serde_json::to_string(&cfg.mail)
+                .unwrap()
+                .contains("smtp-bootstrap-secret")
+        );
+        assert!(!format!("{:?}", cfg.mail).contains("smtp-bootstrap-secret"));
+    }
+
+    #[test]
+    fn flat_mail_environment_names_map_to_bootstrap_fields() {
+        let mut builder = Config::builder().add_source(File::from_str(
+            include_str!("../../config/default.toml"),
+            FileFormat::Toml,
+        ));
+        for (name, value) in [
+            ("APP_MAIL_ENABLED", "true"),
+            ("APP_MAIL_PORT", "2525"),
+            ("APP_MAIL_HOST", "localhost"),
+            ("APP_MAIL_PASSWORD", "00123456"),
+            ("APP_MAIL_USERNAME", "000123"),
+            ("APP_MAIL_SECURITY", "none"),
+            ("APP_MAIL_LANGUAGE", "en"),
+        ] {
+            let key = super::FLAT_ENV_MAP
+                .iter()
+                .find(|(env, _)| *env == name)
+                .unwrap()
+                .1;
+            builder = builder
+                .set_override(key, super::parse_env_value(key, value))
+                .unwrap();
+        }
+        let cfg: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+        assert!(cfg.mail.enabled);
+        assert_eq!(cfg.mail.port, 2525);
+        assert_eq!(cfg.mail.host, "localhost");
+        assert_eq!(cfg.mail.password, "00123456");
+        assert_eq!(cfg.mail.username, "000123");
+        assert_eq!(cfg.mail.security, "none");
+        assert_eq!(cfg.mail.language, "en");
+    }
+
+    #[test]
+    fn nested_mail_credentials_preserve_leading_zeroes() {
+        unsafe {
+            std::env::set_var("APP_MAIL__PASSWORD", "00123456");
+            std::env::set_var("APP_MAIL__USERNAME", "000123");
+        }
+        let overrides = nested_env_overrides();
+        unsafe {
+            std::env::remove_var("APP_MAIL__PASSWORD");
+            std::env::remove_var("APP_MAIL__USERNAME");
+        }
+        let mut builder = Config::builder().add_source(File::from_str(
+            include_str!("../../config/default.toml"),
+            FileFormat::Toml,
+        ));
+        for (key, value) in overrides
+            .into_iter()
+            .filter(|(key, _)| key.starts_with("mail."))
+        {
+            builder = builder.set_override(key, value).unwrap();
+        }
+        let cfg: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+        assert_eq!(cfg.mail.password, "00123456");
+        assert_eq!(cfg.mail.username, "000123");
     }
 
     /// 未知键必须在加载时报错而不是被静默忽略（H-4 的原始形态：顶层 [captcha]）。

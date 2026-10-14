@@ -5,6 +5,8 @@ export default defineConfig({
   title: 'Rustaline 文档',
   description: '类似 Valine 的开源评论服务',
   base: '/rustaline/',
+  // 实施记录保留在仓库中，不作为用户文档页面发布。
+  srcExclude: ['superpowers/**'],
 
   // head 链接原样注入、不自动加 base，href 必须写完整路径前缀
   head: [['link', { rel: 'icon', type: 'image/webp', href: '/rustaline/icon.webp' }]],
@@ -24,6 +26,7 @@ export default defineConfig({
 
     nav: [
       { text: '快速上手', link: '/guide/quick-start' },
+      { text: '设置与邮件', link: '/guide/settings' },
       { text: '从 Valine 导入', link: '/guide/import' },
       { text: '人员感谢名单', link: '/thanks' },
       {
@@ -33,6 +36,7 @@ export default defineConfig({
     ],
     sidebar: [
       { text: '快速上手', link: '/guide/quick-start' },
+      { text: '设置与邮件', link: '/guide/settings' },
       { text: '从 Valine 导入', link: '/guide/import' },
       { text: '人员感谢名单', link: '/thanks' },
     ],

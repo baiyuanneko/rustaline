@@ -33,6 +33,26 @@ comments.example.com {
 }
 ```
 
+## 使用云端构建的 Docker 镜像
+
+GitHub Actions 会在 `dev` / `main` 推送、`v*` 版本标签和手动触发时，先执行 Rust/SDK 测试，再在原生 AMD64 与 ARM64 runner 构建并测试容器，全部通过后发布到 `ghcr.io/<仓库拥有者>/rustaline`。PR 只验证，不发布镜像。
+
+标签包括分支名、`sha-<短提交号>`、版本号；`latest` 跟随仓库默认分支或版本标签。fork 使用自己的拥有者命名空间，无需配置 Docker Hub 密钥。
+
+准备好前述 `.env` 后，添加镜像地址，直接拉取并启动：
+
+```bash
+# .env 中增加（替换为实际发布仓库）
+RUSTALINE_IMAGE=ghcr.io/hyb-oyqq/rustaline:dev
+
+docker compose -f docker-compose.yml -f docker-compose.image.yml pull
+docker compose -f docker-compose.yml -f docker-compose.image.yml up -d --no-build
+```
+
+GHCR 软件包需要设置为 Public 才能匿名拉取；私有包先执行 `docker login ghcr.io`，使用有 `read:packages` 权限的令牌。镜像发布地址与本次构建结果会显示在 Actions 运行摘要中。
+
+在 Actions 中选择 **Build and publish Docker image → Run workflow** 可手动重新构建。要在国内本机使用镜像源构建，可运行 `docker compose build --build-arg DEBIAN_MIRROR=mirrors.aliyun.com --build-arg USE_CARGO_MIRROR=true app`。
+
 ## 调用前端 SDK 加载评论服务
 
 后端部署后，任意静态页面引入 SDK + 两行初始化即可（`server` 填你的 rustaline 服务地址）：
@@ -54,6 +74,16 @@ comments.example.com {
   });
 </script>
 ```
+
+## 后台设置与邮件提醒
+
+访问 `/admin/` 登录后，可以在「设置」页修改评论审核、正文长度、限流、头像、PoW 与图形验证码，保存后即时生效。
+
+首次升级自动把旧 TOML/环境变量的有效评论配置迁入现有数据库（默认 SQLite），已有评论和管理员保留。以后业务设置以数据库为准，原评论/邮件环境变量仅用于首次初始化；数据库、Redis、JWT 和其他部署参数仍通过环境变量配置。
+
+SMTP 支持 STARTTLS、TLS 和本地无加密中继，管理员新评论提醒与评论者回复提醒分别开关，后台可发送测试邮件并查看发送状态。待审核回复通过后才通知，旧评论和导入不会追发；发送队列持久化并自动重试。SMTP 密码加密保存，留空保留、填写替换，更换 JWT 密钥后需要重新填写邮件密码。
+
+完整配置和升级/回退说明见 [后台设置与邮件提醒](docs/guide/settings.md)。
 
 ## 关于 AI 使用
 

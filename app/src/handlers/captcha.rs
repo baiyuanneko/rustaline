@@ -9,6 +9,7 @@ use crate::dto::{
 use crate::error::AppError;
 use crate::middleware::rate_limit::ClientIp;
 use crate::services::captcha_service;
+use crate::services::settings_service::RuntimeSettings;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -19,10 +20,16 @@ use crate::state::AppState;
         (status = 200, description = "Captcha switches and PoW difficulty", body = CaptchaConfigResponse),
     )
 )]
-#[debug_handler]
-pub async fn get_captcha_config(State(state): State<AppState>) -> Json<CaptchaConfigResponse> {
-    let c = &state.config.comment.captcha;
+#[debug_handler(state = AppState)]
+pub async fn get_captcha_config(
+    RuntimeSettings(settings): RuntimeSettings,
+) -> Json<CaptchaConfigResponse> {
+    let c = &settings.comment.captcha;
     Json(CaptchaConfigResponse {
+        comment_max_length: settings.comment.max_length,
+        reply_notification_enabled: settings.mail.enabled
+            && settings.mail.notify_reply
+            && !settings.password_needs_reset,
         pow: PowConfigInfo {
             enabled: c.pow_enabled,
             difficulty: c.pow_difficulty,
@@ -46,9 +53,10 @@ pub async fn get_captcha_config(State(state): State<AppState>) -> Json<CaptchaCo
 #[debug_handler]
 pub async fn get_pow_challenge(
     State(state): State<AppState>,
+    RuntimeSettings(settings): RuntimeSettings,
     ClientIp(ip): ClientIp,
 ) -> Result<Json<PowChallengeResponse>, AppError> {
-    let captcha = &state.config.comment.captcha;
+    let captcha = &settings.comment.captcha;
     if !captcha.pow_enabled {
         // 开关关闭后不得继续签发（M-2）：签发端点 404，避免被当作免费的 HMAC 服务
         return Err(AppError::NotFound("pow captcha is disabled".into()));
@@ -74,8 +82,9 @@ pub async fn get_pow_challenge(
 #[debug_handler]
 pub async fn get_image_captcha(
     State(state): State<AppState>,
+    RuntimeSettings(settings): RuntimeSettings,
 ) -> Result<Json<ImageCaptchaResponse>, AppError> {
-    let captcha = &state.config.comment.captcha;
+    let captcha = &settings.comment.captcha;
     if !captcha.image_enabled {
         // 开关关闭后不得继续签发（M-2）：栅格化 + PNG 编码 + 写存储都有成本；
         // 也规避了 validate_captcha_config 对已关闭功能跳过 TTL 校验、
@@ -91,6 +100,6 @@ pub async fn get_image_captcha(
     Ok(Json(ImageCaptchaResponse {
         captcha_id,
         image,
-        ttl: state.config.comment.captcha.image_ttl_secs,
+        ttl: captcha.image_ttl_secs,
     }))
 }

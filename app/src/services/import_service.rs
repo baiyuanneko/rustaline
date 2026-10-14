@@ -114,6 +114,7 @@ pub async fn import_valine(
             ip: sea_orm::ActiveValue::Set(item.ip),
             ua: sea_orm::ActiveValue::Set(item.ua),
             is_notified: sea_orm::ActiveValue::Set(item.is_notified.unwrap_or(false)),
+            reply_notification: sea_orm::ActiveValue::Set(true),
             status: sea_orm::ActiveValue::Set("approved".to_owned()),
             inserted_at: sea_orm::ActiveValue::Set(inserted_at),
             created_at: sea_orm::ActiveValue::Set(created_at),

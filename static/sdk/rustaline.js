@@ -67,7 +67,7 @@
       linkPlaceholder: '网址（可选）',
       commentPlaceholder: '说点什么吧',
       commentRequired: '请填写评论内容',
-      commentTooLong: '评论内容过长（上限 10000 字）',
+      commentTooLong: '评论内容过长（上限 {max} 字）',
       mailInvalid: '邮箱格式不正确',
       linkInvalid: '网址必须以 http:// 或 https:// 开头',
       loadMore: '加载更多评论',
@@ -90,6 +90,8 @@
       captchaTitle: '图形验证码',
       captchaHint: '请输入图片中的字符（不区分大小写）',
       captchaConfirm: '确定',
+      replyNotification: '接收回复邮件',
+      configRefreshFailed: '无法刷新评论设置，草稿已保留，请重试',
       errPow: '安全校验失败，请重试',
       errCaptcha: '图形验证码错误或已过期，请重新输入',
       timeJustNow: '刚刚',
@@ -121,7 +123,7 @@
       linkPlaceholder: 'Website (optional)',
       commentPlaceholder: 'Say something',
       commentRequired: 'Please enter your comment',
-      commentTooLong: 'Comment is too long (max 10000 characters)',
+      commentTooLong: 'Comment is too long (max {max} characters)',
       mailInvalid: 'Invalid email address',
       linkInvalid: 'Website must start with http:// or https://',
       loadMore: 'Load more comments',
@@ -144,6 +146,8 @@
       captchaTitle: 'Captcha',
       captchaHint: 'Enter the characters in the image (not case-sensitive)',
       captchaConfirm: 'Confirm',
+      replyNotification: 'Email me when someone replies',
+      configRefreshFailed: 'Unable to refresh comment settings. Your draft is saved; please retry.',
       errPow: 'Security check failed, please try again',
       errCaptcha: 'Captcha is incorrect or expired, please try again',
       timeJustNow: 'just now',
@@ -531,6 +535,9 @@
 }
 
 /* ---- 图形验证码模态框（挂 document.body，主题变量由 JS 从 .rs-root 拷贝） ---- */
+.rs-reply-notification { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--rs-on-surface-variant); margin: 12px 0; }
+.rs-reply-notification[hidden] { display: none; }
+.rs-reply-notification input { accent-color: var(--rs-primary); }
 .rs-captcha-overlay {
   position: fixed;
   inset: 0;
@@ -1489,15 +1496,18 @@
     };
 
     // 表单草稿（在 reply 模式切换时保留输入）
-    this.draft = { nick: '', mail: '', link: '', comment: '' };
+    this.draft = { nick: '', mail: '', link: '', comment: '', reply_notification: true };
 
-    // 验证码状态：开关由服务端 /captcha/config 下发；探测失败默认全部关闭（不阻塞旧页面），
-    // 但 configOk 保持 false，提交前会再探一次（H-10）
+    // 每次提交前刷新开关；仅首次明确返回 404 的旧服务端允许无配置提交。
     this.captcha = {
       pow: { enabled: false, difficulty: 4 },
       image: { enabled: false },
       loaded: false,
-      configOk: false, // 配置是否成功拿到过；false 时提交前重探
+      configOk: false,
+      supported: false,
+      legacy: false,
+      replyNotificationEnabled: false,
+      commentMaxLength: 10000,
       // 当前图形码
       captchaId: '',
       captchaImage: '',
@@ -1535,50 +1545,65 @@
 
   /**
    * 单次探测服务端验证码开关：成功写入 this.captcha 并置 configOk，
-   * 失败保持现状（兼容无验证码接口的旧服务端）。永不 reject，以 true/false 结算；
-   * timeoutMs > 0 时经 AbortController 限时（供提交前重探，避免网络黑洞长时间卡住表单）。
+   * 失败保留上一份配置并记录支持状态；永不 reject，以 true/false 结算。
+   * timeoutMs 覆盖请求和响应解析，避免网络黑洞长时间卡住表单。
    */
   Rustaline.prototype._probeCaptchaConfig = function (timeoutMs) {
     var self = this;
-    var ctrl = null;
-    var timer = 0;
-    if (timeoutMs && typeof AbortController !== 'undefined') {
-      ctrl = new AbortController();
-      timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
-    }
-    return fetch(this._captchaBase('config'), {
-      headers: { 'Accept': 'application/json' },
-      signal: ctrl ? ctrl.signal : undefined
-    })
-      .then(function (res) {
-        if (timer) clearTimeout(timer);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (data) {
-        self.captcha.pow.enabled = !!(data && data.pow && data.pow.enabled);
-        self.captcha.pow.difficulty =
-          (data && data.pow && typeof data.pow.difficulty === 'number') ? data.pow.difficulty : 4;
-        self.captcha.image.enabled = !!(data && data.image && data.image.enabled);
-        self.captcha.loaded = true;
-        self.captcha.configOk = true;
-        // 图形码不在初始化时预拉：改为点「发表评论」弹模态框时才拉取，
-        // 避免每次页面加载都消耗一次签发（签发接口 60 次/分钟/IP）
-        self._render();
-        return true;
-      })
-      .catch(function () {
-        if (timer) clearTimeout(timer);
-        // 探测失败：保持默认关闭，不影响评论基础功能；configOk 留 false 供提交前重探
-        self.captcha.loaded = true;
-        self.captcha.configOk = false;
-        return false;
+    var probeVersion = this._configProbeVersion = (this._configProbeVersion || 0) + 1;
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer;
+    // Limit fetch and body parsing together, including a stalled response body.
+    var operation = Promise.resolve().then(function () {
+      return fetch(self._captchaBase('config'), {
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store', signal: ctrl ? ctrl.signal : undefined
       });
+    }).then(function (res) {
+      if (!res.ok) {
+        if (res.status === 404 && !self.captcha.supported && probeVersion === self._configProbeVersion) self.captcha.legacy = true;
+        throw new Error('HTTP ' + res.status);
+      }
+      return res.json();
+    });
+    if (timeoutMs) {
+      operation = Promise.race([operation, new Promise(function (_, reject) {
+        timer = setTimeout(function () {
+          if (ctrl) ctrl.abort();
+          reject(new Error('Config timeout'));
+        }, timeoutMs);
+      })]);
+    }
+    return operation.then(function (data) {
+      if (probeVersion !== self._configProbeVersion) return self.captcha.configOk;
+      if (!data || !data.pow || !data.image) throw new Error('Invalid config');
+      var imageEnabled = !!data.image.enabled;
+      if (imageEnabled !== self.captcha.image.enabled) self._clearImageCaptcha();
+      self.captcha.pow.enabled = !!data.pow.enabled;
+      self.captcha.pow.difficulty = typeof data.pow.difficulty === 'number' ? data.pow.difficulty : 4;
+      self.captcha.image.enabled = imageEnabled;
+      self.captcha.replyNotificationEnabled = !!data.reply_notification_enabled;
+      self.captcha.commentMaxLength = Number.isSafeInteger(data.comment_max_length) && data.comment_max_length >= 0
+        ? data.comment_max_length : 10000;
+      self.captcha.loaded = true;
+      self.captcha.configOk = true;
+      self.captcha.supported = true;
+      self.captcha.legacy = false;
+      // Change only preference visibility, preserving the user's input and focus.
+      var preference = self.el && self.el.querySelector('.rs-reply-notification');
+      if (preference) preference.hidden = !self.captcha.replyNotificationEnabled;
+      return true;
+    }).catch(function () {
+      if (probeVersion !== self._configProbeVersion) return self.captcha.configOk;
+      self.captcha.loaded = true;
+      self.captcha.configOk = false;
+      return false;
+    }).finally(function () { if (timer) clearTimeout(timer); });
   };
 
   /**
    * 探测服务端验证码开关；失败按指数退避重试（至多 retries 次，baseDelay 起每次翻倍），
-   * 仍失败则静默降级为全部关闭（H-10：瞬时网络抖动不再让整页会话永久无法发评论）。
+   * 初始化失败保留状态，提交时仍会刷新；明确的旧服务端 404 无需退避重试。
    * 永不 reject，以是否成功结算。
    */
   Rustaline.prototype._fetchCaptchaConfig = function (retries, baseDelay) {
@@ -1587,7 +1612,7 @@
     var delay = baseDelay || 1000;
     var attempt = function () {
       return self._probeCaptchaConfig(0).then(function (ok) {
-        if (ok || retriesLeft <= 0) return ok;
+        if (ok || self.captcha.legacy || retriesLeft <= 0) return ok;
         retriesLeft -= 1;
         var waitMs = delay;
         delay *= 2;
@@ -2164,7 +2189,7 @@
     var textarea = h('textarea', {
       class: 'rs-textarea', name: 'comment',
       placeholder: this.opts.placeholder,
-      maxlength: 10000, required: true,
+      required: true,
       oninput: function (e) { self.draft.comment = e.target.value; }
     });
     textarea.value = this.draft.comment;
@@ -2178,6 +2203,16 @@
       autocomplete: 'off'
     });
     form.appendChild(hp);
+
+    var replyPreference = h('input', {
+      type: 'checkbox', name: 'reply_notification',
+      onchange: function (e) { self.draft.reply_notification = e.target.checked; }
+    });
+    replyPreference.checked = this.draft.reply_notification !== false;
+    var preferenceLabel = h('label', { class: 'rs-reply-notification' },
+      replyPreference, h('span', { text: lang.replyNotification }));
+    preferenceLabel.hidden = !this.captcha.replyNotificationEnabled;
+    form.appendChild(preferenceLabel);
 
     // 操作行（PoW 计算中文案由按钮直接展示）
     var hint = h('span', { class: 'rs-form__hint' }, this._t('formHint'));
@@ -2411,7 +2446,7 @@
 
     var main = h('div', { class: 'rs-comment__main' }, avatar, body);
 
-    var li = h('li', { class: 'rs-comment', 'data-id': c.id }, main);
+    var li = h('li', { class: 'rs-comment', id: 'comment-' + c.id, 'data-id': c.id }, main);
 
     // 子评论：超过 MAX_DEPTH 层折叠为「继续查看这段对话」占位条（就地展开，零请求）；
     // 已被用户展开的子树（expandedSubtrees）不受深度限制
@@ -2457,7 +2492,8 @@
     var refs = form._rs_refs || {};
     var lang = this.lang;
 
-    var comment = (refs.textarea ? refs.textarea.value : '').trim();
+    var draftComment = refs.textarea ? refs.textarea.value : '';
+    var comment = draftComment.trim();
     var nick = (refs.nickInput ? refs.nickInput.value : '').trim();
     var mail = (refs.mailInput ? refs.mailInput.value : '').trim();
     var link = (refs.linkInput ? refs.linkInput.value : '').trim();
@@ -2471,7 +2507,6 @@
 
     // 客户端校验
     if (!comment) return this._showFormError(form, lang.commentRequired);
-    if (comment.length > 10000) return this._showFormError(form, lang.commentTooLong);
     if (mail && !looksLikeMail(mail)) return this._showFormError(form, langVal(lang, 'mailInvalid'));
     var safeLink = link ? safeLinkUrl(link) : null;
     if (link && !safeLink) return this._showFormError(form, langVal(lang, 'linkInvalid'));
@@ -2481,7 +2516,8 @@
     var body = {
       url: this.opts.url,
       comment: comment,
-      hp: hp
+      hp: hp,
+      reply_notification: this.draft.reply_notification !== false
     };
     if (nick) body.nick = nick.slice(0, 64);
     if (mail) body.mail = mail.slice(0, 128);
@@ -2510,35 +2546,52 @@
     };
 
     // 按探测到的开关继续：图形码弹框收集 / 直接进入 PoW 与提交
-    // （submitBtn 现查现取：提交前重探测会重建表单，闭包里的旧 refs 已游离）
+    // 按当前 DOM 取按钮引用；异步图片加载可能重建表单。
     var proceed = function () {
+      var maxLength = self.captcha.commentMaxLength == null ? 10000 : self.captcha.commentMaxLength;
+      if (Array.from(comment).length > maxLength) {
+        var currentForm = self.el.querySelector('.rs-form');
+        if (currentForm) self._showFormError(currentForm, langVal(lang, 'commentTooLong', maxLength).replace(/\{max\}/g, String(maxLength)));
+        return;
+      }
       if (self.captcha.image.enabled) {
         var submitBtn = self.el.querySelector('.rs-form .rs-btn--primary');
+        self.state.powComputing = true;
+        if (submitBtn) submitBtn.disabled = true;
         self._openCaptchaModal(submitBtn).then(function (code) {
+          self.state.powComputing = false;
+          var currentButton = self.el.querySelector('.rs-form .rs-btn--primary');
+          if (currentButton) {
+            currentButton.disabled = false;
+            currentButton.textContent = lang.submit;
+          }
           if (code == null) return; // 用户取消
           body.captcha_id = self.captcha.captchaId;
           body.captcha_code = code;
-          self._continueSubmit(body, optimistic, { comment: comment, replyTarget: replyTarget });
+          self._continueSubmit(body, optimistic, { comment: comment, draftComment: draftComment, replyTarget: replyTarget });
         });
         return;
       }
-      self._continueSubmit(body, optimistic, { comment: comment, replyTarget: replyTarget });
+      self._continueSubmit(body, optimistic, { comment: comment, draftComment: draftComment, replyTarget: replyTarget });
     };
 
-    // H-10：页面加载时探测失败（或尚未成功）则提交前再探一次，避免按「全关」提交
-    // 被默认双开的服务端持续 400 拒绝且永不恢复；再探仍失败才降级（兼容旧服务端）。
-    // 借用「安全校验计算中」等待态阻断探测期间的重复提交
-    if (!this.captcha.configOk) {
-      this.state.powComputing = true;
-      this._render();
-      this._probeCaptchaConfig(5000).then(function () {
-        self.state.powComputing = false;
-        self._render();
-        proceed();
-      });
-      return;
-    }
-    proceed();
+    // Every attempt refreshes the runtime configuration, even after earlier success.
+    this.state.powComputing = true;
+    var activeButton = form.querySelector('.rs-btn--primary');
+    if (activeButton) activeButton.disabled = true;
+    this._probeCaptchaConfig(5000).then(function (ok) {
+      self.state.powComputing = false;
+      if (activeButton) {
+        activeButton.disabled = false;
+        activeButton.textContent = lang.submit;
+      }
+      if (!ok && (self.captcha.supported || !self.captcha.legacy)) {
+        var current = self.el.querySelector('.rs-form');
+        if (current) self._showFormError(current, lang.configRefreshFailed);
+        return;
+      }
+      proceed();
+    });
   };
 
   /**
@@ -2574,6 +2627,7 @@
         if (solution) body.pow = solution;
         self._dispatchSubmission(body, optimistic, {
           comment: comment,
+          draftComment: ctx.draftComment,
           replyTarget: replyTarget
         });
       })
@@ -2596,10 +2650,7 @@
     var replyTarget = ctx.replyTarget;
 
     // 清空评论框 + 退出回复模式
-    this.draft.comment = '';
-    this.draft.nick = body.nick || '';
-    this.draft.mail = body.mail || '';
-    this.draft.link = body.link || '';
+    if (this.draft.comment.trim() === ctx.comment) this.draft.comment = '';
     this.state.replyTo = null;
 
     var optimisticInserted = false;
@@ -2663,10 +2714,10 @@
           return res.json().then(function (j) {
             var msg = (j && (j.message || j.error)) || lang.errGeneric;
             var kind = 'http';
-            if (/pow verification failed/i.test(msg)) {
+            if (/pow|challenge/i.test(msg)) {
               kind = 'pow';
               msg = lang.errPow;
-            } else if (/captcha code/i.test(msg)) {
+            } else if (/captcha/i.test(msg)) {
               kind = 'captcha';
               msg = lang.errCaptcha;
             }
@@ -2728,20 +2779,20 @@
         self.state.submitting = false;
         self.state.powComputing = false;
         self.state.replyTo = replyTarget; // 恢复回复上下文，方便重试
-        self.draft.comment = ctx.comment; // 恢复评论内容
+        if (!self.draft.comment) self.draft.comment = ctx.draftComment || ctx.comment; // Preserve a newer draft.
         self._render();
 
         var kind = err && err._kind;
-        // 图形码错误：服务端已作废旧码，重新弹模态框（带错误文案 + 新图）让用户重输，
-        // 比在表单里插错误条更贴近「弹框收集」这一交互
-        if (kind === 'captcha' && self.captcha.image.enabled) {
+        // Refresh failed verification but never automatically repeat the POST.
+        if (kind === 'captcha' || kind === 'pow') {
           self._clearImageCaptcha();
-          self._openCaptchaModal(null, err.message || lang.errCaptcha).then(function (code) {
-            if (code == null) return;
-            body.captcha_id = self.captcha.captchaId;
-            body.captcha_code = code;
-            // 重新走完整提交流程（PoW 需重新求解：上一枚 challenge 已被消费）
-            self._continueSubmit(body, optimistic, ctx);
+          self.state.powComputing = true;
+          self._render();
+          self._probeCaptchaConfig(5000).then(function (ok) {
+            self.state.powComputing = false;
+            self._render();
+            var retryForm = self.el.querySelector('.rs-form');
+            if (retryForm) self._showFormError(retryForm, ok ? err.message : lang.configRefreshFailed);
           });
           return;
         }

@@ -257,7 +257,8 @@ pub async fn verify_pow(
             .arg("1")
             .arg("NX")
             .arg("EX")
-            .arg(config.pow_ttl_secs)
+            // 当前设置可能已缩短 TTL，消费记录仍须覆盖签名令牌的剩余寿命。
+            .arg(payload.exp.saturating_sub(now_secs()).max(1))
             .query_async(&mut conn)
             .await?;
         res.is_some()

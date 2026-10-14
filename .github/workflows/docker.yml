@@ -1,0 +1,191 @@
+name: Build and publish Docker image
+
+on:
+  push:
+    branches: [dev, main]
+    tags: ['v*']
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'app/**'
+      - 'migration/**'
+      - 'static/**'
+      - 'config/default.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rustfmt.toml'
+      - '.cargo/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/docker.yml'
+      - '.github/scripts/smoke-image.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Rust and SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Use the upstream Cargo registry on GitHub runners
+        run: mv .cargo/config.toml "$RUNNER_TEMP/cargo-mirror.toml"
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install Redis for the integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+      - name: Build and test
+        run: |
+          cargo fmt --check
+          cargo build --locked
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          node app/tests/sdk.cjs
+
+  build:
+    name: Build ${{ matrix.arch }} image
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build a native image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: rustaline:ci
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+      - name: Test the built image with Redis
+        run: bash .github/scripts/smoke-image.sh rustaline:ci
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the verified architecture image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          tag="$IMAGE:sha-${GITHUB_SHA:0:7}-$ARCH"
+          docker tag rustaline:ci "$tag"
+          docker push "$tag"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$tag")
+          digest=${digest##*@sha256:}
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/$digest"
+      - name: Upload the image digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish the multi-platform image
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Choose branch, commit and version tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
+      - name: Create and inspect the multi-platform manifest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] && args+=(--tag "$tag")
+          done <<< "$TAGS"
+          sources=()
+          for digest in *; do
+            [[ "$digest" =~ ^[a-f0-9]{64}$ ]] || exit 1
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          [[ ${#sources[@]} -eq 2 ]]
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          first_tag=${TAGS%%$'\n'*}
+          docker buildx imagetools inspect "$first_tag"
+          {
+            echo '### Published Docker image'
+            echo 'Platforms: linux/amd64, linux/arm64'
+            while IFS= read -r tag; do
+              echo "- \`docker pull $tag\`"
+            done <<< "$TAGS"
+          } >> "$GITHUB_STEP_SUMMARY"

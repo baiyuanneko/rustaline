@@ -98,6 +98,8 @@ fn api_v1(state: AppState) -> Router<AppState> {
 
 fn admin_routes() -> Router<AppState> {
     Router::new()
+        .route("/mail/test", post(handlers::mail::send_test))
+        .route("/mail/status", get(handlers::mail::status))
         .route(
             "/comments",
             get(handlers::admin_comment::list_admin_comments),
@@ -112,6 +114,9 @@ fn admin_routes() -> Router<AppState> {
             patch(handlers::admin_comment::update_comment_status)
                 .delete(handlers::admin_comment::delete_comment),
         )
-        .route("/config", get(handlers::admin_comment::get_admin_config))
+        .route(
+            "/config",
+            get(handlers::settings::get_admin_config).patch(handlers::settings::patch_admin_config),
+        )
         .route("/account/password", post(handlers::auth::change_password))
 }

@@ -1,0 +1,5 @@
+# 与 docker-compose.yml 叠加使用，沿用数据库卷、Redis、环境变量和端口设置。
+services:
+  app:
+    image: ${RUSTALINE_IMAGE:?请设置 RUSTALINE_IMAGE 为已发布的 GHCR 镜像地址}
+    pull_policy: always

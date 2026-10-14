@@ -4,6 +4,8 @@ mod m20260801_000001_create_user;
 mod m20260802_000001_create_comment;
 mod m20260816_000001_drop_user;
 mod m20260903_000001_create_admin;
+mod m20261013_000001_create_app_settings;
+mod m20261013_000002_create_mail_jobs;
 
 pub struct Migrator;
 
@@ -14,6 +16,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260802_000001_create_comment::Migration),
             Box::new(m20260816_000001_drop_user::Migration),
             Box::new(m20260903_000001_create_admin::Migration),
+            Box::new(m20261013_000001_create_app_settings::Migration),
+            Box::new(m20261013_000002_create_mail_jobs::Migration),
         ]
     }
 }

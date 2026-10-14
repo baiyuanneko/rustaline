@@ -62,6 +62,7 @@ fn test_config(blacklist_enabled: bool) -> AppConfig {
         swagger: SwaggerConfig::default(),
         // 面向旧行为的测试：显式关闭两种验证码（生产默认已改为开启）
         comment: legacy_comment_config(),
+        mail: Default::default(),
         initial_admin: InitialAdminConfig {
             username: Some("admin".into()),
             password: Some("adminpass123".into()),
@@ -91,6 +92,9 @@ async fn build_app(redis_url: Option<String>, blacklist_enabled: bool) -> Router
         None => None,
     };
 
+    app::services::settings_service::initialize(&db, &config)
+        .await
+        .expect("initialize settings");
     // 管理员种子入库（与生产 main.rs 同一条路径）
     app::auth::admin::seed_admin(&db, &config.initial_admin)
         .await
@@ -135,6 +139,9 @@ async fn build_app_state_with_config(config: AppConfig) -> (Router, AppState) {
     opt.max_connections(1);
     let db = Database::connect(opt).await.expect("connect sqlite memory");
     Migrator::up(&db, None).await.expect("run migrations");
+    app::services::settings_service::initialize(&db, &config)
+        .await
+        .expect("initialize settings");
 
     app::auth::admin::seed_admin(&db, &config.initial_admin)
         .await
@@ -214,6 +221,227 @@ async fn login(app: &Router) -> String {
     .await;
     assert_eq!(status, StatusCode::OK, "login failed");
     body["access_token"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn admin_settings_patch_changes_next_comment_without_restart() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+    let (status, _) = call(
+        &app,
+        json_request(
+            "PATCH",
+            "/api/v1/admin/config",
+            Some(json!({"revision": 1, "comment": {"moderation": true}})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(&app, submit_comment_req("/settings-test", "new comment")).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["pending"], true);
+}
+
+#[tokio::test]
+async fn admin_settings_patch_rejects_invalid_values() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+    for comment in [
+        json!({"max_length": 0}),
+        json!({"default_nick": ""}),
+        json!({"captcha": {"pow_difficulty": 9}}),
+    ] {
+        let (status, _) = call(
+            &app,
+            json_request(
+                "PATCH",
+                "/api/v1/admin/config",
+                Some(json!({"revision": 1, "comment": comment})),
+                Some(&token),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+}
+
+#[tokio::test]
+async fn admin_settings_auth_revision_and_nested_updates() {
+    let app = build_app(None, false).await;
+    let (status, _) = call(
+        &app,
+        json_request(
+            "PATCH",
+            "/api/v1/admin/config",
+            Some(json!({"revision": 1, "comment": {"moderation": true}})),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let token = login(&app).await;
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["revision"], 1);
+    assert_eq!(body["comment"]["captcha"]["pow_enabled"], false);
+    assert_eq!(body["mail"]["enabled"], false);
+    let (status, body) = call(&app, json_request("PATCH", "/api/v1/admin/config",
+        Some(json!({"revision": 1, "comment": {"captcha": {"pow_enabled": true, "pow_difficulty": 1}}})), Some(&token))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["revision"], 2);
+    assert_eq!(body["comment"]["default_nick"], "Anonymous");
+    assert_eq!(body["comment"]["captcha"]["image_enabled"], false);
+    let (status, _) = call(
+        &app,
+        json_request(
+            "PATCH",
+            "/api/v1/admin/config",
+            Some(json!({"revision": 1, "comment": {"moderation": true}})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/config", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["pow"]["enabled"], true);
+    assert_eq!(body["pow"]["difficulty"], 1);
+    assert!(body.get("mail").is_none());
+}
+
+#[tokio::test]
+async fn admin_settings_mail_password_updates_are_secret() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+    for (revision, mail, configured) in [
+        (
+            1,
+            json!({"username": "smtp-user", "password": " secret password "}),
+            true,
+        ),
+        (2, json!({"site_name": "Example"}), true),
+        (3, json!({"password": ""}), true),
+        (4, json!({"password": "new-secret"}), true),
+        (5, json!({"clear_password": true}), false),
+    ] {
+        let (status, body) = call(
+            &app,
+            json_request(
+                "PATCH",
+                "/api/v1/admin/config",
+                Some(json!({"revision": revision, "mail": mail})),
+                Some(&token),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["mail"]["password_configured"], configured);
+        assert!(body["mail"].get("password").is_none());
+        assert!(!body.to_string().contains("new-secret"));
+    }
+    for mail in [
+        json!({"port": 0}),
+        json!({"security": "unknown"}),
+        json!({"from_email": "invalid"}),
+        json!({"site_url": "javascript:alert(1)"}),
+        json!({"enabled": true}),
+        json!({"clear_password": true, "password": "conflict"}),
+        json!({"language": "de"}),
+    ] {
+        let (status, _) = call(
+            &app,
+            json_request(
+                "PATCH",
+                "/api/v1/admin/config",
+                Some(json!({"revision": 6, "mail": mail})),
+                Some(&token),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+}
+
+#[tokio::test]
+async fn admin_settings_limits_and_display_apply_to_next_request() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+    let (status, _) = call(
+        &app,
+        json_request(
+            "PATCH",
+            "/api/v1/admin/config",
+            Some(
+                json!({"revision": 1, "comment": {"max_length": 3, "default_nick": "新昵称",
+            "display_commenter_user_agent": false, "rate_limit_per_minute": 2}}),
+            ),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(&app, submit_comment_req("/settings", "long")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = call(&app, submit_comment_req("/settings", "ok")).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["nick"], "新昵称");
+    assert!(body["ua_summary"].is_null());
+    let (status, _) = call(&app, submit_comment_req("/settings", "ok")).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn admin_settings_cannot_patch_deployment_secrets() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+    for payload in [
+        json!({"revision":1,"jwt":{"secret":"injected"}}),
+        json!({"revision":1,"comment":{"captcha":{"secret":"injected"}}}),
+    ] {
+        let (status, _) = call(
+            &app,
+            json_request("PATCH", "/api/v1/admin/config", Some(payload), Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/admin/config", None, Some(&token)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["revision"], 1);
+    assert!(body["comment"]["captcha"].get("secret").is_none());
+}
+
+#[tokio::test]
+async fn deployed_custom_captcha_secret_still_signs_runtime_challenges() {
+    let mut config = test_config(false);
+    config.comment.captcha.pow_enabled = true;
+    config.comment.captcha.pow_difficulty = 1;
+    config.comment.captcha.secret = "custom-deployment-captcha-secret".into();
+    let (app, state) = build_app_state_with_config(config).await;
+    let (_, body) = call(&app, json_request("GET", "/api/v1/captcha/pow", None, None)).await;
+    let challenge = body["challenge"].as_str().unwrap();
+    let solution = solve_pow(challenge, 1);
+    let (status, _) = call(&app, json_request("POST", "/api/v1/comments", Some(json!({
+        "url":"/custom-secret","comment":"valid","pow":{"challenge":challenge,"nonce":solution}
+    })), None)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        state.config.comment.captcha.secret,
+        "custom-deployment-captcha-secret"
+    );
 }
 
 #[tokio::test]
@@ -1945,6 +2173,31 @@ fn pow_submit_req(url: &str, comment: &str, challenge: &str, nonce: u64) -> Requ
 }
 
 #[tokio::test]
+async fn public_config_reflects_saved_comment_length_limit() {
+    let app = build_app(None, false).await;
+    let token = login(&app).await;
+    let (status, _) = call(
+        &app,
+        json_request(
+            "PATCH",
+            "/api/v1/admin/config",
+            Some(json!({"revision": 1, "comment": {"max_length": 20000}})),
+            Some(&token),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(
+        &app,
+        json_request("GET", "/api/v1/captcha/config", None, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["comment_max_length"], 20000);
+    assert!(body.get("mail").is_none());
+}
+
+#[tokio::test]
 async fn captcha_config_endpoint_reflects_switches() {
     let app = build_app_with_comment(captcha_comment_config(true, false, |_| {})).await;
     let (status, body) = call(
@@ -2348,6 +2601,67 @@ async fn captcha_pow_replay_blocked_via_redis() {
     )
     .await;
     assert!(err.is_err(), "Redis 路径重放必须失败");
+}
+
+#[tokio::test]
+async fn shortening_pow_ttl_keeps_redis_replay_protection_until_signed_expiration() {
+    let Some(redis) = spawn_redis() else {
+        eprintln!("redis-server binary not found, skipping captcha redis test");
+        return;
+    };
+    let manager = redis_manager(&redis.url).await;
+    let memory = app::services::captcha_service::CaptchaMemoryStore::new();
+    let mut config = captcha_comment_config(true, false, |captcha| {
+        captcha.pow_difficulty = 1;
+        captcha.pow_ttl_secs = 600;
+    });
+    let key = app::services::captcha_service::signing_key(&config.captcha, "test-secret");
+    let challenge =
+        app::services::captcha_service::issue_pow_challenge(&key, &config.captcha, "0.0.0.0");
+    let solution = app::services::captcha_service::PowSolutionInput {
+        nonce: solve_pow(&challenge, 1),
+        challenge,
+    };
+    config.captcha.pow_ttl_secs = 1;
+    app::services::captcha_service::verify_pow(
+        &Some(manager.clone()),
+        &memory,
+        &key,
+        &config.captcha,
+        Some(&solution),
+        "0.0.0.0",
+    )
+    .await
+    .unwrap();
+    let mut connection = manager.clone();
+    let consumed_keys: Vec<String> = redis::cmd("KEYS")
+        .arg("captcha:pow:*")
+        .query_async(&mut connection)
+        .await
+        .unwrap();
+    assert_eq!(consumed_keys.len(), 1);
+    let ttl: i64 = redis::cmd("TTL")
+        .arg(&consumed_keys[0])
+        .query_async(&mut connection)
+        .await
+        .unwrap();
+    assert!(
+        ttl > 500 && ttl <= 600,
+        "signed challenge lifetime must be retained, got {ttl}"
+    );
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(
+        app::services::captcha_service::verify_pow(
+            &Some(manager),
+            &memory,
+            &key,
+            &config.captcha,
+            Some(&solution),
+            "0.0.0.0",
+        )
+        .await
+        .is_err()
+    );
 }
 
 // ---------------------------------------------------------------------------
