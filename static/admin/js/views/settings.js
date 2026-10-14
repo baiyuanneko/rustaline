@@ -12,7 +12,7 @@ export async function render(container) {
   try {
     const cfg = await fetchConfig();
     loading.remove();
-    container.appendChild(renderConfig(cfg));
+    container.appendChild(renderRuntimeSettings(cfg, renderPasswordCard()));
   } catch (err) {
     loading.remove();
     container.appendChild(
@@ -23,10 +23,9 @@ export async function render(container) {
       })
     );
     if (err.status !== 401) toastErr(t("common.loadFailed"), err.message);
+    // 配置读取失败时仍提供独立的改密入口。
+    container.appendChild(renderPasswordCard());
   }
-
-  // 改密卡片与配置加载解耦：配置加载失败也应能改密码
-  container.appendChild(renderPasswordCard());
 }
 
 function pageHead() {
@@ -36,10 +35,6 @@ function pageHead() {
   titles.appendChild(el("div", { class: "page-subtitle", text: t("settings.subtitle") }));
   head.appendChild(titles);
   return head;
-}
-
-function renderConfig(cfg) {
-  return renderRuntimeSettings(cfg);
 }
 
 function renderPasswordCard() {
