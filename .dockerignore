@@ -1,0 +1,16 @@
+# Docker 构建只接收运行镜像需要的文件，排除本地密钥、数据库和工具缓存。
+**
+!Dockerfile
+!Dockerfile.dev
+!Cargo.toml
+!Cargo.lock
+!.cargo/
+!.cargo/config.toml
+!app/
+!app/**
+!migration/
+!migration/**
+!static/
+!static/**
+!config/
+!config/default.toml

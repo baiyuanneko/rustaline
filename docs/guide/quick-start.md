@@ -18,6 +18,21 @@ docker compose up -d --build
 curl http://localhost:8080/health        # APP_PORT 改了的话换对应端口
 ```
 
+### 可选：直接使用 GitHub Actions 镜像
+
+Actions 自动测试、构建并发布 AMD64 / ARM64 镜像到 `ghcr.io/<仓库拥有者>/rustaline`；fork 的镜像使用 fork 拥有者的名字。分支标签为 `dev` / `main`，默认分支另提供 `latest`，每次构建另提供 `sha-<短提交号>`，`v*` 标签生成版本标签。
+
+准备好 `.env` 后添加实际镜像地址，便可免本机编译启动：
+
+```bash
+# .env 中添加，替换为实际发布仓库
+RUSTALINE_IMAGE=ghcr.io/hyb-oyqq/rustaline:dev
+docker compose -f docker-compose.yml -f docker-compose.image.yml pull
+docker compose -f docker-compose.yml -f docker-compose.image.yml up -d --no-build
+```
+
+公开 GHCR 包可匿名拉取，私有包需先 `docker login ghcr.io`。手动构建在 Actions 的 **Build and publish Docker image** 中点击 **Run workflow**，发布标签与构建信息见运行摘要。
+
 ## 第二步：反向代理（caddy）
 
 compose 把 app 发布到宿主机 `127.0.0.1:$APP_PORT`（在 `.env` 里设 `APP_PORT`，默认 8080），Caddyfile 指向同一端口即可（Caddy 自动设置 `X-Forwarded-For` 并签发 TLS）：

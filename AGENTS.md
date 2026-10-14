@@ -28,6 +28,7 @@ bynrust26/
 │   ├── .vitepress/       # config.ts（base / zh-CN / logo / isCustomElement 声明 mdui-* 自定义元素）+ theme（extend 默认主题 + M3 令牌 custom.css）
 │   └── *.md              # 首页 + 快速上手（guide/quick-start）+ 从 Valine 导入（guide/import）+ 人员感谢名单（thanks）
 ├── .github/workflows/    # docs.yml：push dev 分支构建 docs/ 并发布 GitHub Pages
+│                         # docker.yml：Rust/SDK 校验 → 原生 AMD64/ARM64 构建与容器检查 → GHCR 发布
 └── app/                  # 应用 crate（bin 名 bynrust26，lib 名 app）
     ├── src/
     │   ├── main.rs       # 启动流程与优雅退出（into_make_service_with_connect_info 注入客户端 IP）
@@ -60,6 +61,15 @@ JWT 密钥启动时强制校验（`config.rs::validate_jwt_secret`，在 main.rs
 
 单管理员入库：`admins` 表仅一行（迁移 m20260903_000001）。`APP_INITIAL_ADMIN_USERNAME` / `APP_INITIAL_ADMIN_PASSWORD` 仅在表为空时作首次种子（此时缺失即启动失败），入库后被完全忽略（改动无效，可从 env 移除）。密码只存 argon2 哈希；login 查库比对发 JWT（sub = 用户名，claims 带 ver = token_version）；改密码走管理面板设置页（`POST /api/v1/admin/account/password`，校验当前密码、新密码 ≥8 字符），改密自增 token_version 使包括当前在内的全部旧 token 立即失效；AuthUser 在验签 + 黑名单后查库比对 token_version（单管理员低频，每请求一次 DB 查询可接受）。
 
+
+## Docker 云端构建
+
+- `.github/workflows/docker.yml` 在 dev/main 推送、v* 标签与手动触发时发布 GHCR 镜像；PR 仅校验。镜像路径从 github.repository 派生，fork 不向主仓库包写入。
+- 默认 SQLite，原生 ubuntu-24.04 / ubuntu-24.04-arm 分别构建并以 Redis 检查真实容器；两者成功后才更新多架构分支/latest/sha/版本标签。
+- 只有发布任务授予 packages:write，使用 GITHUB_TOKEN，无需 Docker Hub 凭据；Actions 版本固定为提交 SHA。
+- `.dockerignore` 白名单限制构建上下文，运行镜像只 COPY config/default.toml；禁止打入 .env、local.toml、数据库或本地工具缓存。
+- 生产 Dockerfile 默认官方源并使用 cargo --locked；国内本机可设置 DEBIAN_MIRROR 与 USE_CARGO_MIRROR 构建参数。
+- `docker-compose.image.yml` 与原 compose 叠加，RUSTALINE_IMAGE 指定云端镜像；使用 up --no-build 沿用现有 Redis 与数据卷。
 
 ## 运行时设置与邮件通知
 
